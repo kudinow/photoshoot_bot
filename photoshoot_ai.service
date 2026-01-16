@@ -1,0 +1,25 @@
+[Unit]
+Description=Photoshoot AI Telegram Bot
+After=network.target
+
+[Service]
+Type=simple
+User=deploy
+Group=deploy
+WorkingDirectory=/opt/photoshoot_ai
+Environment=PATH=/opt/photoshoot_ai/venv/bin:/usr/bin:/bin
+ExecStart=/opt/photoshoot_ai/venv/bin/python -m bot.main
+Restart=always
+RestartSec=10
+
+# Логирование
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=photoshoot_ai
+
+# Безопасность
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
