@@ -13,12 +13,17 @@ def get_gender_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def get_restart_keyboard() -> InlineKeyboardMarkup:
+def get_restart_keyboard(has_last_photo: bool = False) -> InlineKeyboardMarkup:
     """Клавиатура для повторной генерации"""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="🔄 Создать ещё", callback_data="restart"),
-            ]
-        ]
-    )
+    buttons = []
+
+    if has_last_photo:
+        buttons.append([
+            InlineKeyboardButton(text="🔄 Сгенерировать заново", callback_data="regenerate"),
+        ])
+
+    buttons.append([
+        InlineKeyboardButton(text="✨ Создать с новым фото", callback_data="restart"),
+    ])
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)

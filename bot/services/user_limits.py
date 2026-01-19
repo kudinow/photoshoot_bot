@@ -33,6 +33,29 @@ def _load_data() -> dict:
     return {}
 
 
+def _get_user_data(user_id: int) -> dict:
+    """Возвращает данные пользователя"""
+    data = _load_data()
+    user_key = str(user_id)
+
+    if user_key not in data:
+        return {"generations": 0, "last_photo_url": None, "last_gender": None}
+
+    # Поддержка старого формата (просто число)
+    user_data = data[user_key]
+    if isinstance(user_data, int):
+        return {"generations": user_data, "last_photo_url": None, "last_gender": None}
+
+    return user_data
+
+
+def _set_user_data(user_id: int, user_data: dict) -> None:
+    """Сохраняет данные пользователя"""
+    data = _load_data()
+    data[str(user_id)] = user_data
+    _save_data(data)
+
+
 def _save_data(data: dict) -> None:
     """Сохраняет данные о генерациях"""
     data_file = _get_data_file()
@@ -49,8 +72,8 @@ def is_admin(user_id: int) -> bool:
 
 def get_generations_count(user_id: int) -> int:
     """Возвращает количество использованных генераций"""
-    data = _load_data()
-    return data.get(str(user_id), 0)
+    user_data = _get_user_data(user_id)
+    return user_data["generations"]
 
 
 def get_remaining_generations(user_id: int) -> int:
@@ -73,8 +96,22 @@ def increment_generations(user_id: int) -> None:
     if is_admin(user_id):
         return  # Админу не считаем
 
-    data = _load_data()
-    current = data.get(str(user_id), 0)
-    data[str(user_id)] = current + 1
-    _save_data(data)
-    logger.info(f"User {user_id} generations: {current + 1}/{MAX_FREE_GENERATIONS}")
+    user_data = _get_user_data(user_id)
+    user_data["generations"] += 1
+    _set_user_data(user_id, user_data)
+    logger.info(f"User {user_id} generations: {user_data['generations']}/{MAX_FREE_GENERATIONS}")
+
+
+def save_last_photo(user_id: int, photo_url: str, gender: str) -> None:
+    """Сохраняет последнюю фотографию пользователя"""
+    user_data = _get_user_data(user_id)
+    user_data["last_photo_url"] = photo_url
+    user_data["last_gender"] = gender
+    _set_user_data(user_id, user_data)
+    logger.info(f"Saved last photo for user {user_id}")
+
+
+def get_last_photo(user_id: int) -> tuple[str | None, str | None]:
+    """Возвращает последнюю фотографию и пол пользователя"""
+    user_data = _get_user_data(user_id)
+    return user_data.get("last_photo_url"), user_data.get("last_gender")

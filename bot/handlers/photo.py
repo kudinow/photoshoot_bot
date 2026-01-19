@@ -9,8 +9,10 @@ from bot.services.kie_client import KieClientError, kie_client
 from bot.services.openai_client import OpenAIClientError, openai_client
 from bot.services.user_limits import (
     can_generate,
+    get_last_photo,
     get_remaining_generations,
     increment_generations,
+    save_last_photo,
 )
 from bot.states.generation import GenerationStates
 
@@ -38,7 +40,11 @@ async def handle_photo(message: Message, state: FSMContext, bot: Bot) -> None:
 
     # Показываем оставшиеся генерации
     remaining = get_remaining_generations(user_id)
-    remaining_text = "" if remaining == -1 else f"\n(Осталось генераций: {remaining - 1})"
+    remaining_text = (
+        ""
+        if remaining == -1
+        else f"\n(Осталось генераций: {remaining - 1})"
+    )
 
     # Отправляем сообщение о начале обработки
     processing_msg = await message.answer(
@@ -51,8 +57,16 @@ async def handle_photo(message: Message, state: FSMContext, bot: Bot) -> None:
         data = await state.get_data()
         gender = data.get("gender", "male")
 
+        logger.info(
+            f"Starting generation for user {user_id}, gender: {gender}"
+        )
+
         # Генерируем промпт через OpenAI
+        logger.info(f"Generating prompt for user {user_id}...")
         prompt = await openai_client.generate_prompt(gender)
+        logger.info(
+            f"Prompt generated for user {user_id}, length: {len(prompt)}"
+        )
 
         # Получаем файл фото (берём самое большое разрешение)
         photo = message.photo[-1]
@@ -64,7 +78,8 @@ async def handle_photo(message: Message, state: FSMContext, bot: Bot) -> None:
         )
 
         logger.info(
-            f"Processing photo for user {message.from_user.id}, gender: {gender}"
+            f"Processing photo for user {user_id}, "
+            f"file_path: {file.file_path}"
         )
 
         # Отправляем в kie.ai и ждём результат
@@ -82,12 +97,18 @@ async def handle_photo(message: Message, state: FSMContext, bot: Bot) -> None:
         # Увеличиваем счётчик генераций
         increment_generations(user_id)
 
+        # Сохраняем URL фото и пол для возможности регенерации
+        save_last_photo(user_id, file_url, gender)
+
         # Формируем caption с информацией об оставшихся генерациях
         remaining_after = get_remaining_generations(user_id)
         if remaining_after == -1:
             caption = "Готово! Вот твой профессиональный портрет."
         elif remaining_after > 0:
-            caption = f"Готово! Вот твой профессиональный портрет.\n\n📊 Осталось бесплатных генераций: {remaining_after}"
+            caption = (
+                f"Готово! Вот твой профессиональный портрет.\n\n"
+                f"📊 Осталось бесплатных генераций: {remaining_after}"
+            )
         else:
             caption = (
                 "Готово! Вот твой профессиональный портрет.\n\n"
@@ -101,7 +122,7 @@ async def handle_photo(message: Message, state: FSMContext, bot: Bot) -> None:
                 result_image, filename="studio_portrait.jpg"
             ),
             caption=caption,
-            reply_markup=get_restart_keyboard(),
+            reply_markup=get_restart_keyboard(has_last_photo=True),
         )
 
         logger.info(
@@ -141,7 +162,9 @@ async def handle_photo(message: Message, state: FSMContext, bot: Bot) -> None:
 
 
 @router.message(F.photo)
-async def handle_photo_without_state(message: Message, state: FSMContext) -> None:
+async def handle_photo_without_state(
+    message: Message, state: FSMContext
+) -> None:
     """Обработчик фото без выбранного стиля"""
     from bot.keyboards.inline import get_gender_keyboard
 
