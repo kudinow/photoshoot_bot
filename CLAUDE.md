@@ -36,18 +36,19 @@ No test suite, linter, or build step exists. Dependencies: `pip install -r requi
 | Path | Purpose |
 |------|---------|
 | `bot/main.py` | Entry point: creates Bot, Dispatcher (MemoryStorage FSM), registers routers, starts polling |
-| `bot/config.py` | `Settings` (pydantic BaseSettings from `.env`) + `PROMPT_SYSTEM` / `PROMPT_CRITICAL_SUFFIX` constants |
+| `bot/config.py` | `Settings` (pydantic BaseSettings from `.env`) + `CreditPackage` / `CREDIT_PACKAGES` + `PROMPT_SYSTEM` / `PROMPT_CRITICAL_SUFFIX` constants |
 | `bot/handlers/start.py` | `/start` command, gender selection callback, regenerate callback |
 | `bot/handlers/photo.py` | Photo upload handler, orchestrates prompt generation → image transformation → response |
+| `bot/handlers/payment.py` | Payment flow: package selection, purchase confirmation (YooKassa placeholder) |
 | `bot/services/openai_client.py` | `OpenAIClient` — async prompt generation via OpenRouter (GPT-5.2) |
 | `bot/services/kie_client.py` | `KieClient` — async image transformation via kie.ai (google/nano-banana-edit), with polling and exponential backoff |
-| `bot/services/user_limits.py` | JSON file-based user limit tracking (3 free generations, admin bypass) |
+| `bot/services/user_limits.py` | SQLite-based user limit tracking (1 free generation + paid credits, admin bypass), payment history, `init_db()` called at startup |
 | `bot/states/generation.py` | `GenerationStates` FSM: `selecting_gender` → `awaiting_photo` → `processing` |
-| `bot/keyboards/inline.py` | Inline keyboard builders: gender selection, restart, regenerate buttons |
+| `bot/keyboards/inline.py` | Inline keyboard builders: gender selection, restart, regenerate, buy credits, package selection buttons |
 
 **Service clients are module-level singletons** (`kie_client = KieClient()`, `openai_client = OpenAIClient()`), imported directly by handlers.
 
-**Data persistence:** JSON file at `/opt/photoshoot_ai/user_generations.json` (production) or project root (local dev). Schema: `{user_id: {generations, last_photo_url, last_gender}}`. Supports legacy format migration (plain int → dict).
+**Data persistence:** SQLite database at `/opt/photoshoot_ai/user_data.db` (production) or project root (local dev). Tables: `users(user_id, generations, last_photo_url, last_gender, paid_credits)` and `payments(id, user_id, package_id, credits, amount, status, created_at, confirmed_at, payment_provider_id)`. On first run, `init_db()` auto-migrates schema (adds `paid_credits` column, creates `payments` table) and migrates legacy JSON data.
 
 ## Environment Variables
 
@@ -59,8 +60,17 @@ Configured via `.env` (see `.env.example`):
 
 ## Key Constants
 
-- `MAX_FREE_GENERATIONS = 3` and `ADMIN_ID = 91892537` in `bot/services/user_limits.py`
+- `MAX_FREE_GENERATIONS = 1` and `ADMIN_ID = 91892537` in `bot/services/user_limits.py`
+- `CREDIT_PACKAGES` in `bot/config.py` — three credit packs: 5/149₽, 15/349₽, 50/899₽ (prices in kopecks for payment API)
 - Prompt templates (`PROMPT_SYSTEM`, `PROMPT_CRITICAL_SUFFIX`) in `bot/config.py` — these are critical for output quality; changes should be tested carefully
+
+## Payment System
+
+**Status:** Phase 1 complete (client infrastructure). YooKassa integration pending (Phase 2).
+
+**Current behavior:** When user exhausts free generation, a "Buy credits" button appears. Selecting a package and clicking "Pay" instantly confirms (placeholder). In Phase 2, `confirm_buy()` in `bot/handlers/payment.py` will be replaced with YooKassa payment creation + webhook confirmation.
+
+**Credit consumption order:** Free generations first, then paid credits. `can_generate()` checks both pools. `increment_generations()` deducts from the correct pool automatically.
 
 ## Deployment
 

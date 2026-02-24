@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 from pydantic_settings import BaseSettings
 
 
@@ -22,6 +24,53 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+# --- Пакеты генераций для покупки ---
+
+
+@dataclass(frozen=True)
+class CreditPackage:
+    """Пакет генераций для покупки"""
+
+    id: str
+    credits: int
+    price_rub: int
+    price_kopecks: int
+    label: str
+
+
+CREDIT_PACKAGES: tuple[CreditPackage, ...] = (
+    CreditPackage(
+        id="pack_5",
+        credits=5,
+        price_rub=149,
+        price_kopecks=14900,
+        label="5 генераций — 149 ₽",
+    ),
+    CreditPackage(
+        id="pack_15",
+        credits=15,
+        price_rub=349,
+        price_kopecks=34900,
+        label="15 генераций — 349 ₽",
+    ),
+    CreditPackage(
+        id="pack_50",
+        credits=50,
+        price_rub=899,
+        price_kopecks=89900,
+        label="50 генераций — 899 ₽",
+    ),
+)
+
+
+def get_package_by_id(package_id: str) -> CreditPackage | None:
+    """Возвращает пакет по его ID"""
+    for pkg in CREDIT_PACKAGES:
+        if pkg.id == package_id:
+            return pkg
+    return None
 
 
 # Системный промпт для OpenAI - генерация промптов для студийных портретов

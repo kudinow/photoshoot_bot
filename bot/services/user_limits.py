@@ -54,6 +54,31 @@ def init_db() -> None:
             )
         """)
 
+        # Миграция: добавляем колонку paid_credits
+        try:
+            conn.execute(
+                "ALTER TABLE users ADD COLUMN paid_credits INTEGER NOT NULL DEFAULT 0"
+            )
+            logger.info("Added paid_credits column to users table")
+        except sqlite3.OperationalError:
+            pass  # Колонка уже существует
+
+        # Таблица истории платежей
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS payments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                package_id TEXT NOT NULL,
+                credits INTEGER NOT NULL,
+                amount INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                confirmed_at TEXT,
+                payment_provider_id TEXT,
+                FOREIGN KEY (user_id) REFERENCES users(user_id)
+            )
+        """)
+
     # Миграция из JSON
     json_path = _get_json_path()
     if json_path.exists():
@@ -109,7 +134,7 @@ def is_admin(user_id: int) -> bool:
 
 
 def get_generations_count(user_id: int) -> int:
-    """Возвращает количество использованных генераций"""
+    """Возвращает количество использованных бесплатных генераций"""
     with _get_conn() as conn:
         row = conn.execute(
             "SELECT generations FROM users WHERE user_id = ?",
@@ -118,36 +143,96 @@ def get_generations_count(user_id: int) -> int:
     return row[0] if row else 0
 
 
+def get_paid_credits(user_id: int) -> int:
+    """Возвращает количество оплаченных генераций"""
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT paid_credits FROM users WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+    return row[0] if row else 0
+
+
 def get_remaining_generations(user_id: int) -> int:
-    """Возвращает количество оставшихся генераций"""
+    """Возвращает общее количество оставшихся генераций (бесплатные + платные)"""
     if is_admin(user_id):
         return -1  # Безлимит
     used = get_generations_count(user_id)
-    return max(0, MAX_FREE_GENERATIONS - used)
+    free_remaining = max(0, MAX_FREE_GENERATIONS - used)
+    paid = get_paid_credits(user_id)
+    return free_remaining + paid
 
 
 def can_generate(user_id: int) -> bool:
-    """Проверяет, может ли пользователь генерировать"""
+    """Проверяет, может ли пользователь генерировать (бесплатные + платные)"""
     if is_admin(user_id):
         return True
     return get_remaining_generations(user_id) > 0
 
 
+def has_free_generations(user_id: int) -> bool:
+    """Проверяет, есть ли ещё бесплатные генерации"""
+    if is_admin(user_id):
+        return True
+    return get_generations_count(user_id) < MAX_FREE_GENERATIONS
+
+
 def increment_generations(user_id: int) -> None:
-    """Увеличивает счётчик генераций пользователя"""
+    """Списывает одну генерацию (сначала бесплатные, потом платные)"""
     if is_admin(user_id):
         return
 
     with _get_conn() as conn:
-        conn.execute(
-            """INSERT INTO users (user_id, generations)
-               VALUES (?, 1)
-               ON CONFLICT(user_id)
-               DO UPDATE SET generations = generations + 1""",
+        row = conn.execute(
+            "SELECT generations, paid_credits FROM users WHERE user_id = ?",
             (user_id,),
+        ).fetchone()
+
+        current_generations = row[0] if row else 0
+        current_paid = row[1] if row else 0
+
+        if current_generations < MAX_FREE_GENERATIONS:
+            # Списываем бесплатную генерацию
+            conn.execute(
+                """INSERT INTO users (user_id, generations)
+                   VALUES (?, 1)
+                   ON CONFLICT(user_id)
+                   DO UPDATE SET generations = generations + 1""",
+                (user_id,),
+            )
+            logger.info(
+                f"User {user_id}: used free generation "
+                f"({current_generations + 1}/{MAX_FREE_GENERATIONS})"
+            )
+        elif current_paid > 0:
+            # Списываем платный кредит
+            conn.execute(
+                "UPDATE users SET paid_credits = paid_credits - 1 WHERE user_id = ?",
+                (user_id,),
+            )
+            logger.info(
+                f"User {user_id}: used paid credit "
+                f"({current_paid - 1} remaining)"
+            )
+        else:
+            logger.warning(
+                f"User {user_id}: no credits available "
+                f"but increment_generations called"
+            )
+
+
+def add_paid_credits(user_id: int, credits: int) -> None:
+    """Добавляет оплаченные генерации пользователю"""
+    with _get_conn() as conn:
+        conn.execute(
+            """INSERT INTO users (user_id, paid_credits)
+               VALUES (?, ?)
+               ON CONFLICT(user_id)
+               DO UPDATE SET paid_credits = paid_credits + ?""",
+            (user_id, credits, credits),
         )
-    count = get_generations_count(user_id)
-    logger.info(f"User {user_id} generations: {count}/{MAX_FREE_GENERATIONS}")
+    total = get_paid_credits(user_id)
+    logger.info(f"User {user_id}: added {credits} paid credits, total now: {total}")
 
 
 def save_last_photo(user_id: int, photo_url: str, gender: str) -> None:
@@ -173,3 +258,63 @@ def get_last_photo(user_id: int) -> tuple[str | None, str | None]:
     if row:
         return row[0], row[1]
     return None, None
+
+
+# --- Платежи ---
+
+
+def create_payment(
+    user_id: int, package_id: str, credits: int, amount: int
+) -> int:
+    """Создаёт запись о платеже, возвращает ID"""
+    with _get_conn() as conn:
+        cursor = conn.execute(
+            """INSERT INTO payments (user_id, package_id, credits, amount, status)
+               VALUES (?, ?, ?, ?, 'pending')""",
+            (user_id, package_id, credits, amount),
+        )
+        payment_id = cursor.lastrowid
+    logger.info(f"Created payment {payment_id} for user {user_id}: {package_id}")
+    return payment_id
+
+
+def confirm_payment(payment_id: int) -> bool:
+    """Подтверждает платёж и начисляет кредиты. Возвращает True при успехе."""
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT user_id, credits, status FROM payments WHERE id = ?",
+            (payment_id,),
+        ).fetchone()
+
+        if not row:
+            logger.error(f"Payment {payment_id} not found")
+            return False
+
+        user_id, credits, status = row
+
+        if status != "pending":
+            logger.warning(f"Payment {payment_id} already has status: {status}")
+            return False
+
+        conn.execute(
+            """UPDATE payments
+               SET status = 'confirmed', confirmed_at = datetime('now')
+               WHERE id = ?""",
+            (payment_id,),
+        )
+
+    # Начисляем кредиты
+    add_paid_credits(user_id, credits)
+    logger.info(f"Payment {payment_id} confirmed: {credits} credits for user {user_id}")
+    return True
+
+
+def get_payment(payment_id: int) -> dict | None:
+    """Возвращает информацию о платеже"""
+    with _get_conn() as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM payments WHERE id = ?",
+            (payment_id,),
+        ).fetchone()
+    return dict(row) if row else None

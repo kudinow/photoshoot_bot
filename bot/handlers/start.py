@@ -5,10 +5,15 @@ from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
-from bot.keyboards.inline import get_gender_keyboard, get_restart_keyboard
+from bot.keyboards.inline import (
+    get_buy_keyboard,
+    get_gender_keyboard,
+    get_restart_keyboard,
+)
 from bot.services.user_limits import (
     can_generate,
     get_last_photo,
+    get_paid_credits,
     get_remaining_generations,
     is_admin,
 )
@@ -31,9 +36,16 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
     if is_admin(user_id):
         limit_text = "👑 У тебя безлимитный доступ."
     elif remaining > 0:
-        limit_text = f"🎁 У тебя {remaining} бесплатных генераций."
+        paid = get_paid_credits(user_id)
+        if paid > 0:
+            limit_text = f"💳 У тебя {remaining} генераций ({paid} оплаченных)."
+        else:
+            limit_text = "🎁 У тебя 1 бесплатная генерация."
     else:
-        limit_text = "⚠️ Бесплатные генерации закончились."
+        limit_text = (
+            "⚠️ Генерации закончились. "
+            "Купи пакет, чтобы продолжить!"
+        )
 
     welcome_text = (
         "Привет! Я помогу превратить твоё фото "
@@ -46,7 +58,9 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
         "Выбери стиль фотографии:"
     )
 
-    await message.answer(welcome_text, reply_markup=get_gender_keyboard())
+    await message.answer(
+        welcome_text, reply_markup=get_gender_keyboard()
+    )
     await state.set_state(GenerationStates.selecting_gender)
 
 
@@ -66,7 +80,9 @@ async def restart_generation(
 
 
 @router.callback_query(F.data == "regenerate")
-async def regenerate_photo(callback: CallbackQuery, state: FSMContext) -> None:
+async def regenerate_photo(
+    callback: CallbackQuery, state: FSMContext
+) -> None:
     """Обработчик кнопки 'Сгенерировать заново'"""
     await callback.answer()
 
@@ -75,9 +91,9 @@ async def regenerate_photo(callback: CallbackQuery, state: FSMContext) -> None:
     # Проверяем лимит генераций
     if not can_generate(user_id):
         await callback.message.answer(
-            "К сожалению, бесплатная генерация уже использована 😔\n\n"
-            "Скоро появится возможность приобрести дополнительные генерации. "
-            "Следи за обновлениями!"
+            "К сожалению, все генерации использованы 😔\n\n"
+            "Купи пакет генераций, чтобы продолжить!",
+            reply_markup=get_buy_keyboard(),
         )
         await state.clear()
         return
@@ -109,7 +125,9 @@ async def regenerate_photo(callback: CallbackQuery, state: FSMContext) -> None:
     # Показываем оставшиеся генерации
     remaining = get_remaining_generations(user_id)
     remaining_text = (
-        "" if remaining == -1 else f"\n(Осталось генераций: {remaining - 1})"
+        ""
+        if remaining == -1
+        else f"\n(Осталось генераций: {remaining - 1})"
     )
 
     # Отправляем сообщение о начале обработки
@@ -119,12 +137,15 @@ async def regenerate_photo(callback: CallbackQuery, state: FSMContext) -> None:
     )
 
     try:
-        logger.info(f"Regenerating for user {user_id}, gender: {gender}")
+        logger.info(
+            f"Regenerating for user {user_id}, gender: {gender}"
+        )
 
         # Генерируем новый промпт
         prompt = await openai_client.generate_prompt(gender)
         logger.info(
-            f"Prompt generated for user {user_id}, length: {len(prompt)}"
+            f"Prompt generated for user {user_id}, "
+            f"length: {len(prompt)}"
         )
 
         # Отправляем в kie.ai и ждём результат
@@ -149,13 +170,13 @@ async def regenerate_photo(callback: CallbackQuery, state: FSMContext) -> None:
         elif remaining_after > 0:
             caption = (
                 f"Готово! Вот новый вариант твоего портрета.\n\n"
-                f"📊 Осталось бесплатных генераций: {remaining_after}"
+                f"📊 Осталось генераций: {remaining_after}"
             )
         else:
             caption = (
                 "Готово! Вот новый вариант твоего портрета.\n\n"
-                "⚠️ Это была последняя бесплатная генерация.\n"
-                "Скоро появится возможность приобрести дополнительные!"
+                "⚠️ Это была последняя генерация.\n"
+                "Купи пакет генераций, чтобы продолжить!"
             )
 
         # Отправляем результат
@@ -164,10 +185,15 @@ async def regenerate_photo(callback: CallbackQuery, state: FSMContext) -> None:
                 result_image, filename="studio_portrait.jpg"
             ),
             caption=caption,
-            reply_markup=get_restart_keyboard(has_last_photo=True),
+            reply_markup=get_restart_keyboard(
+                has_last_photo=True,
+                has_credits=(remaining_after != 0),
+            ),
         )
 
-        logger.info(f"Successfully regenerated photo for user {user_id}")
+        logger.info(
+            f"Successfully regenerated photo for user {user_id}"
+        )
 
     except OpenAIClientError as e:
         logger.error(f"OpenAI error for user {user_id}: {e}")
@@ -179,15 +205,19 @@ async def regenerate_photo(callback: CallbackQuery, state: FSMContext) -> None:
     except KieClientError as e:
         logger.error(f"KieClient error for user {user_id}: {e}")
         await processing_msg.edit_text(
-            "Произошла ошибка при обработке фото. Попробуй ещё раз.\n\n"
+            "Произошла ошибка при обработке фото. "
+            "Попробуй ещё раз.\n\n"
             f"Ошибка: {e}",
             reply_markup=get_restart_keyboard(has_last_photo=True),
         )
 
     except Exception as e:
-        logger.exception(f"Unexpected error for user {user_id}: {e}")
+        logger.exception(
+            f"Unexpected error for user {user_id}: {e}"
+        )
         await processing_msg.edit_text(
-            "Произошла неожиданная ошибка. Попробуй ещё раз позже.",
+            "Произошла неожиданная ошибка. "
+            "Попробуй ещё раз позже.",
             reply_markup=get_restart_keyboard(has_last_photo=True),
         )
 
@@ -198,7 +228,9 @@ async def regenerate_photo(callback: CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(
     F.data.startswith("gender:"), GenerationStates.selecting_gender
 )
-async def select_gender(callback: CallbackQuery, state: FSMContext) -> None:
+async def select_gender(
+    callback: CallbackQuery, state: FSMContext
+) -> None:
     """Обработчик выбора пола"""
     await callback.answer()
 

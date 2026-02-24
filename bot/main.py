@@ -8,7 +8,7 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from bot.config import settings
-from bot.handlers import photo, start
+from bot.handlers import payment, photo, start
 from bot.services.user_limits import init_db
 
 
@@ -41,6 +41,7 @@ async def main() -> None:
 
     # Регистрируем роутеры
     dp.include_router(start.router)
+    dp.include_router(payment.router)
     dp.include_router(photo.router)
 
     # Запускаем бота

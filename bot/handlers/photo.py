@@ -4,12 +4,11 @@ from aiogram import Bot, F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import BufferedInputFile, Message
 
-from bot.keyboards.inline import get_restart_keyboard
+from bot.keyboards.inline import get_buy_keyboard, get_restart_keyboard
 from bot.services.kie_client import KieClientError, kie_client
 from bot.services.openai_client import OpenAIClientError, openai_client
 from bot.services.user_limits import (
     can_generate,
-    get_last_photo,
     get_remaining_generations,
     increment_generations,
     save_last_photo,
@@ -22,16 +21,18 @@ router = Router()
 
 
 @router.message(F.photo, GenerationStates.awaiting_photo)
-async def handle_photo(message: Message, state: FSMContext, bot: Bot) -> None:
+async def handle_photo(
+    message: Message, state: FSMContext, bot: Bot
+) -> None:
     """Обработчик получения фото"""
     user_id = message.from_user.id
 
     # Проверяем лимит генераций
     if not can_generate(user_id):
         await message.answer(
-            "К сожалению, бесплатная генерация уже использована 😔\n\n"
-            "Скоро появится возможность приобрести дополнительные генерации. "
-            "Следи за обновлениями!"
+            "К сожалению, все генерации использованы 😔\n\n"
+            "Купи пакет генераций, чтобы продолжить!",
+            reply_markup=get_buy_keyboard(),
         )
         await state.clear()
         return
@@ -58,14 +59,16 @@ async def handle_photo(message: Message, state: FSMContext, bot: Bot) -> None:
         gender = data.get("gender", "male")
 
         logger.info(
-            f"Starting generation for user {user_id}, gender: {gender}"
+            f"Starting generation for user {user_id}, "
+            f"gender: {gender}"
         )
 
         # Генерируем промпт через OpenAI
         logger.info(f"Generating prompt for user {user_id}...")
         prompt = await openai_client.generate_prompt(gender)
         logger.info(
-            f"Prompt generated for user {user_id}, length: {len(prompt)}"
+            f"Prompt generated for user {user_id}, "
+            f"length: {len(prompt)}"
         )
 
         # Получаем файл фото (берём самое большое разрешение)
@@ -74,7 +77,8 @@ async def handle_photo(message: Message, state: FSMContext, bot: Bot) -> None:
 
         # Формируем URL для Telegram файла
         file_url = (
-            f"https://api.telegram.org/file/bot{bot.token}/{file.file_path}"
+            f"https://api.telegram.org/file/bot"
+            f"{bot.token}/{file.file_path}"
         )
 
         logger.info(
@@ -107,13 +111,13 @@ async def handle_photo(message: Message, state: FSMContext, bot: Bot) -> None:
         elif remaining_after > 0:
             caption = (
                 f"Готово! Вот твой профессиональный портрет.\n\n"
-                f"📊 Осталось бесплатных генераций: {remaining_after}"
+                f"📊 Осталось генераций: {remaining_after}"
             )
         else:
             caption = (
                 "Готово! Вот твой профессиональный портрет.\n\n"
-                "⚠️ Это была последняя бесплатная генерация.\n"
-                "Скоро появится возможность приобрести дополнительные!"
+                "⚠️ Это была последняя генерация.\n"
+                "Купи пакет генераций, чтобы продолжить!"
             )
 
         # Отправляем результат
@@ -122,7 +126,10 @@ async def handle_photo(message: Message, state: FSMContext, bot: Bot) -> None:
                 result_image, filename="studio_portrait.jpg"
             ),
             caption=caption,
-            reply_markup=get_restart_keyboard(has_last_photo=True),
+            reply_markup=get_restart_keyboard(
+                has_last_photo=True,
+                has_credits=(remaining_after != 0),
+            ),
         )
 
         logger.info(
@@ -143,7 +150,8 @@ async def handle_photo(message: Message, state: FSMContext, bot: Bot) -> None:
             f"KieClient error for user {message.from_user.id}: {e}"
         )
         await processing_msg.edit_text(
-            "Произошла ошибка при обработке фото. Попробуй ещё раз.\n\n"
+            "Произошла ошибка при обработке фото. "
+            "Попробуй ещё раз.\n\n"
             f"Ошибка: {e}",
             reply_markup=get_restart_keyboard(),
         )
@@ -153,7 +161,8 @@ async def handle_photo(message: Message, state: FSMContext, bot: Bot) -> None:
             f"Unexpected error for user {message.from_user.id}: {e}"
         )
         await processing_msg.edit_text(
-            "Произошла неожиданная ошибка. Попробуй ещё раз позже.",
+            "Произошла неожиданная ошибка. "
+            "Попробуй ещё раз позже.",
             reply_markup=get_restart_keyboard(),
         )
 
@@ -180,12 +189,15 @@ async def handle_not_photo(message: Message) -> None:
     """Обработчик не-фото сообщений в состоянии ожидания фото"""
     await message.answer(
         "Пожалуйста, отправь фотографию.\n"
-        "Лучше всего подойдёт портретное фото, где хорошо видно лицо."
+        "Лучше всего подойдёт портретное фото, "
+        "где хорошо видно лицо."
     )
 
 
 @router.message(GenerationStates.processing)
-async def handle_message_while_processing(message: Message) -> None:
+async def handle_message_while_processing(
+    message: Message,
+) -> None:
     """Обработчик сообщений во время обработки"""
     await message.answer(
         "Подожди, я ещё обрабатываю предыдущее фото..."
