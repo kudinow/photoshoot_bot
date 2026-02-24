@@ -75,7 +75,7 @@ async def regenerate_photo(callback: CallbackQuery, state: FSMContext) -> None:
     # Проверяем лимит генераций
     if not can_generate(user_id):
         await callback.message.answer(
-            "К сожалению, ты использовал все 3 бесплатные генерации 😔\n\n"
+            "К сожалению, бесплатная генерация уже использована 😔\n\n"
             "Скоро появится возможность приобрести дополнительные генерации. "
             "Следи за обновлениями!"
         )

@@ -1,68 +1,106 @@
-"""Сервис для отслеживания лимитов генераций пользователей"""
+"""Сервис для отслеживания лимитов генераций пользователей (SQLite)"""
+
+from __future__ import annotations
 
 import json
 import logging
+import sqlite3
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# Файл для хранения счётчиков (простое решение без БД)
-DATA_FILE = Path("/opt/photoshoot_ai/user_generations.json")
-# Для локальной разработки
-LOCAL_DATA_FILE = Path(__file__).parent.parent.parent / "user_generations.json"
+# Пути к БД
+_PROD_DIR = Path("/opt/photoshoot_ai")
+_LOCAL_DIR = Path(__file__).parent.parent.parent
+_PROD_DB = _PROD_DIR / "user_data.db"
+_LOCAL_DB = _LOCAL_DIR / "user_data.db"
 
-MAX_FREE_GENERATIONS = 3
+# Старые JSON-файлы (для миграции)
+_PROD_JSON = _PROD_DIR / "user_generations.json"
+_LOCAL_JSON = _LOCAL_DIR / "user_generations.json"
+
+MAX_FREE_GENERATIONS = 1
 ADMIN_ID = 91892537
 
 
-def _get_data_file() -> Path:
-    """Возвращает путь к файлу данных"""
-    if DATA_FILE.parent.exists():
-        return DATA_FILE
-    return LOCAL_DATA_FILE
+def _get_db_path() -> Path:
+    """Возвращает путь к файлу БД"""
+    if _PROD_DIR.exists():
+        return _PROD_DB
+    return _LOCAL_DB
 
 
-def _load_data() -> dict:
-    """Загружает данные о генерациях"""
-    data_file = _get_data_file()
-    if data_file.exists():
-        try:
-            return json.loads(data_file.read_text())
-        except Exception as e:
-            logger.error(f"Error loading user data: {e}")
-    return {}
+def _get_json_path() -> Path:
+    """Возвращает путь к старому JSON-файлу (для миграции)"""
+    if _PROD_DIR.exists():
+        return _PROD_JSON
+    return _LOCAL_JSON
 
 
-def _get_user_data(user_id: int) -> dict:
-    """Возвращает данные пользователя"""
-    data = _load_data()
-    user_key = str(user_id)
-
-    if user_key not in data:
-        return {"generations": 0, "last_photo_url": None, "last_gender": None}
-
-    # Поддержка старого формата (просто число)
-    user_data = data[user_key]
-    if isinstance(user_data, int):
-        return {"generations": user_data, "last_photo_url": None, "last_gender": None}
-
-    return user_data
+def _get_conn() -> sqlite3.Connection:
+    """Возвращает соединение с БД"""
+    return sqlite3.connect(_get_db_path())
 
 
-def _set_user_data(user_id: int, user_data: dict) -> None:
-    """Сохраняет данные пользователя"""
-    data = _load_data()
-    data[str(user_id)] = user_data
-    _save_data(data)
+def init_db() -> None:
+    """Инициализирует БД и мигрирует данные из JSON, если он существует"""
+    with _get_conn() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id INTEGER PRIMARY KEY,
+                generations INTEGER NOT NULL DEFAULT 0,
+                last_photo_url TEXT,
+                last_gender TEXT
+            )
+        """)
+
+    # Миграция из JSON
+    json_path = _get_json_path()
+    if json_path.exists():
+        _migrate_from_json(json_path)
 
 
-def _save_data(data: dict) -> None:
-    """Сохраняет данные о генерациях"""
-    data_file = _get_data_file()
+def _migrate_from_json(json_path: Path) -> None:
+    """Мигрирует данные из старого JSON-файла в SQLite"""
     try:
-        data_file.write_text(json.dumps(data, indent=2))
+        data = json.loads(json_path.read_text())
     except Exception as e:
-        logger.error(f"Error saving user data: {e}")
+        logger.error(f"Failed to read JSON for migration: {e}")
+        return
+
+    migrated = 0
+    with _get_conn() as conn:
+        for user_key, user_data in data.items():
+            try:
+                user_id = int(user_key)
+            except ValueError:
+                continue
+
+            # Поддержка старого формата (просто число)
+            if isinstance(user_data, int):
+                generations = user_data
+                last_photo_url = None
+                last_gender = None
+            else:
+                generations = user_data.get("generations", 0)
+                last_photo_url = user_data.get("last_photo_url")
+                last_gender = user_data.get("last_gender")
+
+            conn.execute(
+                """INSERT OR IGNORE INTO users
+                   (user_id, generations, last_photo_url, last_gender)
+                   VALUES (?, ?, ?, ?)""",
+                (user_id, generations, last_photo_url, last_gender),
+            )
+            migrated += 1
+
+    # Переименовываем JSON в .bak
+    backup_path = json_path.with_suffix(".json.bak")
+    json_path.rename(backup_path)
+    logger.info(
+        f"Migrated {migrated} users from JSON to SQLite. "
+        f"Backup: {backup_path}"
+    )
 
 
 def is_admin(user_id: int) -> bool:
@@ -72,8 +110,12 @@ def is_admin(user_id: int) -> bool:
 
 def get_generations_count(user_id: int) -> int:
     """Возвращает количество использованных генераций"""
-    user_data = _get_user_data(user_id)
-    return user_data["generations"]
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT generations FROM users WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+    return row[0] if row else 0
 
 
 def get_remaining_generations(user_id: int) -> int:
@@ -94,24 +136,40 @@ def can_generate(user_id: int) -> bool:
 def increment_generations(user_id: int) -> None:
     """Увеличивает счётчик генераций пользователя"""
     if is_admin(user_id):
-        return  # Админу не считаем
+        return
 
-    user_data = _get_user_data(user_id)
-    user_data["generations"] += 1
-    _set_user_data(user_id, user_data)
-    logger.info(f"User {user_id} generations: {user_data['generations']}/{MAX_FREE_GENERATIONS}")
+    with _get_conn() as conn:
+        conn.execute(
+            """INSERT INTO users (user_id, generations)
+               VALUES (?, 1)
+               ON CONFLICT(user_id)
+               DO UPDATE SET generations = generations + 1""",
+            (user_id,),
+        )
+    count = get_generations_count(user_id)
+    logger.info(f"User {user_id} generations: {count}/{MAX_FREE_GENERATIONS}")
 
 
 def save_last_photo(user_id: int, photo_url: str, gender: str) -> None:
     """Сохраняет последнюю фотографию пользователя"""
-    user_data = _get_user_data(user_id)
-    user_data["last_photo_url"] = photo_url
-    user_data["last_gender"] = gender
-    _set_user_data(user_id, user_data)
+    with _get_conn() as conn:
+        conn.execute(
+            """INSERT INTO users (user_id, last_photo_url, last_gender)
+               VALUES (?, ?, ?)
+               ON CONFLICT(user_id)
+               DO UPDATE SET last_photo_url = ?, last_gender = ?""",
+            (user_id, photo_url, gender, photo_url, gender),
+        )
     logger.info(f"Saved last photo for user {user_id}")
 
 
 def get_last_photo(user_id: int) -> tuple[str | None, str | None]:
     """Возвращает последнюю фотографию и пол пользователя"""
-    user_data = _get_user_data(user_id)
-    return user_data.get("last_photo_url"), user_data.get("last_gender")
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT last_photo_url, last_gender FROM users WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+    if row:
+        return row[0], row[1]
+    return None, None

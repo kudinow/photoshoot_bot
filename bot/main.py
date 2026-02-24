@@ -9,6 +9,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 from bot.config import settings
 from bot.handlers import photo, start
+from bot.services.user_limits import init_db
 
 
 def setup_logging() -> None:
@@ -27,6 +28,9 @@ async def main() -> None:
     logger = logging.getLogger(__name__)
 
     logger.info("Starting bot...")
+
+    # Инициализируем БД
+    init_db()
 
     # Создаём бота и диспетчер
     bot = Bot(
