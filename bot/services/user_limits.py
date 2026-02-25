@@ -318,3 +318,41 @@ def get_payment(payment_id: int) -> dict | None:
             (payment_id,),
         ).fetchone()
     return dict(row) if row else None
+
+
+def update_payment_provider_id(
+    payment_id: int, provider_id: str
+) -> None:
+    """Сохраняет ID платежа из YooKassa"""
+    with _get_conn() as conn:
+        conn.execute(
+            "UPDATE payments SET payment_provider_id = ? WHERE id = ?",
+            (provider_id, payment_id),
+        )
+    logger.info(
+        f"Payment {payment_id}: set provider_id={provider_id}"
+    )
+
+
+def cancel_payment(payment_id: int) -> None:
+    """Помечает платёж как отменённый"""
+    with _get_conn() as conn:
+        conn.execute(
+            "UPDATE payments SET status = 'canceled' WHERE id = ?",
+            (payment_id,),
+        )
+    logger.info(f"Payment {payment_id} canceled")
+
+
+def get_pending_payment_by_provider_id(
+    provider_id: str,
+) -> dict | None:
+    """Находит pending-платёж по ID из YooKassa"""
+    with _get_conn() as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM payments "
+            "WHERE payment_provider_id = ? AND status = 'pending'",
+            (provider_id,),
+        ).fetchone()
+    return dict(row) if row else None

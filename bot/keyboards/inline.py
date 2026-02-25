@@ -80,10 +80,35 @@ def get_confirm_package_keyboard(package_id: str) -> InlineKeyboardMarkup:
     )
 
 
+def get_payment_url_keyboard(
+    payment_url: str, payment_id: int
+) -> InlineKeyboardMarkup:
+    """Клавиатура со ссылкой на оплату и кнопкой проверки"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(
+                text="💳 Перейти к оплате",
+                url=payment_url,
+            )],
+            [InlineKeyboardButton(
+                text="✅ Проверить оплату",
+                callback_data=f"check_payment:{payment_id}",
+            )],
+            [InlineKeyboardButton(
+                text="« Отмена",
+                callback_data="buy_credits",
+            )],
+        ]
+    )
+
+
 def get_after_payment_keyboard() -> InlineKeyboardMarkup:
     """Клавиатура после успешной оплаты"""
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="📸 Создать фото", callback_data="restart")],
+            [InlineKeyboardButton(
+                text="📸 Создать фото",
+                callback_data="restart",
+            )],
         ]
     )

@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 
 from pydantic_settings import BaseSettings
+from yookassa import Configuration as YooKassaConfiguration
 
 
 class Settings(BaseSettings):
@@ -15,6 +18,11 @@ class Settings(BaseSettings):
     openrouter_api_key: str
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
 
+    # YooKassa
+    yookassa_shop_id: str
+    yookassa_secret_key: str
+    yookassa_return_url: str = "https://t.me/photoshoot_generator_bot"
+
     # Settings
     debug: bool = False
 
@@ -24,6 +32,10 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# Инициализация YooKassa SDK
+YooKassaConfiguration.account_id = settings.yookassa_shop_id
+YooKassaConfiguration.secret_key = settings.yookassa_secret_key
 
 
 # --- Пакеты генераций для покупки ---

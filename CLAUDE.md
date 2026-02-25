@@ -39,7 +39,8 @@ No test suite, linter, or build step exists. Dependencies: `pip install -r requi
 | `bot/config.py` | `Settings` (pydantic BaseSettings from `.env`) + `CreditPackage` / `CREDIT_PACKAGES` + `PROMPT_SYSTEM` / `PROMPT_CRITICAL_SUFFIX` constants |
 | `bot/handlers/start.py` | `/start` command, gender selection callback, regenerate callback |
 | `bot/handlers/photo.py` | Photo upload handler, orchestrates prompt generation → image transformation → response |
-| `bot/handlers/payment.py` | Payment flow: package selection, purchase confirmation (YooKassa placeholder) |
+| `bot/handlers/payment.py` | Payment flow: package selection, YooKassa payment creation, status polling |
+| `bot/services/yookassa_client.py` | Async wrapper over YooKassa SDK (payment creation + status check via `run_in_executor`) |
 | `bot/services/openai_client.py` | `OpenAIClient` — async prompt generation via OpenRouter (GPT-5.2) |
 | `bot/services/kie_client.py` | `KieClient` — async image transformation via kie.ai (google/nano-banana-edit), with polling and exponential backoff |
 | `bot/services/user_limits.py` | SQLite-based user limit tracking (1 free generation + paid credits, admin bypass), payment history, `init_db()` called at startup |
@@ -56,6 +57,8 @@ Configured via `.env` (see `.env.example`):
 - `BOT_TOKEN` — Telegram bot token
 - `KIE_API_KEY`, `KIE_API_URL` — kie.ai image transformation API
 - `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL` — OpenRouter for GPT-5.2 access (used instead of OpenAI directly due to Russia restrictions)
+- `YOOKASSA_SHOP_ID`, `YOOKASSA_SECRET_KEY` — YooKassa payment credentials
+- `YOOKASSA_RETURN_URL` — deep link back to bot after payment (default: `https://t.me/photoshoot_generator_bot`)
 - `DEBUG` — enables DEBUG-level logging
 
 ## Key Constants
@@ -66,11 +69,18 @@ Configured via `.env` (see `.env.example`):
 
 ## Payment System
 
-**Status:** Phase 1 complete (client infrastructure). YooKassa integration pending (Phase 2).
+**Status:** YooKassa integration complete. Live payments enabled.
 
-**Current behavior:** When user exhausts free generation, a "Buy credits" button appears. Selecting a package and clicking "Pay" instantly confirms (placeholder). In Phase 2, `confirm_buy()` in `bot/handlers/payment.py` will be replaced with YooKassa payment creation + webhook confirmation.
+**Payment flow:**
+1. User exhausts free generation → "Buy credits" button appears
+2. User selects a credit package → clicks "Pay"
+3. Bot creates payment in YooKassa → sends link button to YooKassa payment page
+4. User pays on YooKassa → returns to bot via `YOOKASSA_RETURN_URL`
+5. Payment confirmed via background polling (every 15s, up to 15 min) or manual "Check payment" button → credits added
 
 **Credit consumption order:** Free generations first, then paid credits. `can_generate()` checks both pools. `increment_generations()` deducts from the correct pool automatically.
+
+**Caveat:** Callback buttons on photo messages cannot use `edit_text()` — only `edit_caption()` or sending a new message. The `show_packages` handler detects this via `callback.message.photo` and sends a new message instead.
 
 ## Deployment
 
