@@ -114,11 +114,11 @@ Deep links allow tracking traffic sources via `/start SOURCE` parameter.
 
 **Files on server:** `/var/www/landing/` — `index.html` + `photo/` directory with images.
 
-**Source:** `landing/v1-clean-corporate.html` is the active landing. Other variants (`v2`–`v5`) are drafts kept locally.
+**Source:** `landing/index.html` is the active landing.
 
 **Deploy landing changes:**
 ```bash
-scp landing/v1-clean-corporate.html kudinow@89.169.163.73:/var/www/landing/index.html
+scp landing/index.html kudinow@89.169.163.73:/var/www/landing/index.html
 ```
 No restart needed — Caddy serves static files, changes are instant.
 

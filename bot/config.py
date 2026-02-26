@@ -99,7 +99,7 @@ Look: Confident, authentic, direct eye contact with camera
 Angles: Straight-on or slight 3/4 turn, professional framing (chest-up or head-and-shoulders)
 Lighting: Studio lighting setup — soft key light with gentle fill, subtle rim light for dimension
 Background: Seamless neutral backdrop or softly blurred studio environment
-Color: Nude, pastel, muted tones — expanded palette with variety
+Color: See style-specific palette below — follow it strictly
 
 Technical Photography Setup
 [keywords: studio lighting, bokeh, sharp focus, professional grade]
