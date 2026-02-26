@@ -1,7 +1,8 @@
 import logging
 
 from aiogram import F, Router
-from aiogram.filters import CommandStart
+from aiogram.filters import Command, CommandStart
+from aiogram.filters.command import CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
@@ -14,8 +15,10 @@ from bot.services.user_limits import (
     can_generate,
     get_last_photo,
     get_paid_credits,
+    get_referral_stats,
     get_remaining_generations,
     is_admin,
+    save_referral,
 )
 from bot.states.generation import GenerationStates
 
@@ -25,11 +28,17 @@ router = Router()
 
 
 @router.message(CommandStart())
-async def cmd_start(message: Message, state: FSMContext) -> None:
+async def cmd_start(message: Message, state: FSMContext, command: CommandObject) -> None:
     """Обработчик команды /start"""
     await state.clear()
 
     user_id = message.from_user.id
+
+    # Сохраняем источник перехода (диплинк)
+    source = command.args
+    if source:
+        save_referral(user_id, source)
+        logger.info(f"User {user_id} came from: {source}")
     remaining = get_remaining_generations(user_id)
 
     # Формируем текст о лимите
@@ -62,6 +71,27 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
         welcome_text, reply_markup=get_gender_keyboard()
     )
     await state.set_state(GenerationStates.selecting_gender)
+
+
+@router.message(Command("stats"))
+async def cmd_stats(message: Message) -> None:
+    """Статистика источников трафика (только для админа)"""
+    if not is_admin(message.from_user.id):
+        return
+
+    stats = get_referral_stats()
+    if not stats:
+        await message.answer("Нет данных о переходах.")
+        return
+
+    total = sum(count for _, count in stats)
+    lines = ["📊 *Источники трафика:*\n"]
+    for source, count in stats:
+        pct = round(count / total * 100)
+        lines.append(f"• `{source}`: {count} чел. ({pct}%)")
+    lines.append(f"\nВсего: {total}")
+
+    await message.answer("\n".join(lines), parse_mode="Markdown")
 
 
 @router.callback_query(F.data == "restart")

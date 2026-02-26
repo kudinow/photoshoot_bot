@@ -79,6 +79,16 @@ def init_db() -> None:
             )
         """)
 
+        # Таблица источников переходов (диплинки)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS referrals (
+                user_id INTEGER PRIMARY KEY,
+                source TEXT NOT NULL,
+                joined_at TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY (user_id) REFERENCES users(user_id)
+            )
+        """)
+
     # Миграция из JSON
     json_path = _get_json_path()
     if json_path.exists():
@@ -356,3 +366,24 @@ def get_pending_payment_by_provider_id(
             (provider_id,),
         ).fetchone()
     return dict(row) if row else None
+
+
+# --- Реферальная статистика ---
+
+
+def save_referral(user_id: int, source: str) -> None:
+    """Сохраняет источник перехода (только при первом визите с source)"""
+    with _get_conn() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO referrals (user_id, source) VALUES (?, ?)",
+            (user_id, source),
+        )
+
+
+def get_referral_stats() -> list[tuple[str, int]]:
+    """Возвращает статистику по источникам [(source, count), ...]"""
+    with _get_conn() as conn:
+        return conn.execute(
+            "SELECT source, COUNT(*) FROM referrals "
+            "GROUP BY source ORDER BY COUNT(*) DESC"
+        ).fetchall()

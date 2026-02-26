@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Фото для резюме — Профессиональный портрет за 30 секунд</title>
+    <meta name="description" content="AI-бот в Telegram превращает обычное селфи в студийный портрет. Первая генерация бесплатно.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0F0F1A;
+            --card: rgba(255,255,255,0.05);
+            --card-border: rgba(255,255,255,0.1);
+            --text: #F8FAFC;
+            --text-muted: #94A3B8;
+            --purple: #8B5CF6;
+            --pink: #EC4899;
+            --cyan: #06B6D4;
+            --font: 'Space Grotesk', system-ui, sans-serif;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
+        body {
+            font-family: var(--font);
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+
+        /* ── ANIMATED BLOBS ── */
+        .blobs {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; z-index: 0; overflow: hidden;
+        }
+        .blob {
+            position: absolute; border-radius: 50%; filter: blur(120px); opacity: 0.35;
+        }
+        .blob--purple {
+            width: 500px; height: 500px; top: -100px; right: -100px;
+            background: var(--purple);
+            animation: blobMove1 18s ease-in-out infinite;
+        }
+        .blob--pink {
+            width: 400px; height: 400px; bottom: 20%; left: -80px;
+            background: var(--pink);
+            animation: blobMove2 22s ease-in-out infinite;
+        }
+        .blob--cyan {
+            width: 350px; height: 350px; top: 50%; right: 10%;
+            background: var(--cyan);
+            animation: blobMove3 20s ease-in-out infinite;
+        }
+        @keyframes blobMove1 {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            33% { transform: translate(-80px, 60px) scale(1.15); }
+            66% { transform: translate(40px, -40px) scale(0.9); }
+        }
+        @keyframes blobMove2 {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            33% { transform: translate(60px, -50px) scale(1.1); }
+            66% { transform: translate(-30px, 80px) scale(0.95); }
+        }
+        @keyframes blobMove3 {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            50% { transform: translate(-60px, -60px) scale(1.2); }
+        }
+
+        /* Glass */
+        .glass {
+            background: var(--card);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+        }
+
+        /* Gradient text */
+        .grad-text {
+            background: linear-gradient(135deg, var(--purple), var(--pink), var(--cyan));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        /* ── NAV ── */
+        .nav {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+            padding: 16px 0;
+            transition: background 0.4s, backdrop-filter 0.4s;
+        }
+        .nav--scrolled {
+            background: rgba(15,15,26,0.8);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--card-border);
+        }
+        .nav__inner {
+            max-width: 1100px; margin: 0 auto; padding: 0 24px;
+            display: flex; align-items: center; justify-content: space-between;
+        }
+        .nav__logo { font-weight: 700; font-size: 1.15rem; text-decoration: none; }
+        .nav__logo .grad-text { font-weight: 700; }
+        .nav__links { display: flex; align-items: center; gap: 32px; }
+        .nav__link {
+            color: var(--text-muted); text-decoration: none; font-size: 0.9rem;
+            font-weight: 500; transition: color 0.2s;
+        }
+        .nav__link:hover { color: var(--text); }
+        .nav__cta {
+            padding: 10px 22px; border-radius: 10px; font-weight: 600;
+            font-size: 0.9rem; text-decoration: none; color: var(--text);
+            background: linear-gradient(135deg, var(--purple), var(--pink));
+            transition: box-shadow 0.3s, transform 0.2s;
+        }
+        .nav__cta:hover {
+            box-shadow: 0 0 24px rgba(139,92,246,0.4);
+            transform: translateY(-1px);
+        }
+
+        /* ── CONTENT WRAPPER ── */
+        .content { position: relative; z-index: 1; }
+
+        /* ── HERO ── */
+        .hero {
+            min-height: 100vh; display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            text-align: center; padding: 120px 24px 80px;
+        }
+        .hero__badge {
+            display: inline-block; padding: 8px 20px; border-radius: 50px;
+            font-size: 0.85rem; font-weight: 500; margin-bottom: 32px;
+            color: var(--text);
+        }
+        .hero__title {
+            font-size: clamp(2rem, 5vw, 3.5rem);
+            font-weight: 700; line-height: 1.15;
+            letter-spacing: -0.03em; margin-bottom: 20px;
+            max-width: 700px;
+        }
+        .hero__subtitle {
+            font-size: 1.15rem; color: var(--text-muted);
+            max-width: 520px; margin: 0 auto 36px;
+        }
+        .hero__btn {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 16px 36px; border-radius: 14px; font-size: 1.05rem;
+            font-weight: 700; text-decoration: none; color: white;
+            background: linear-gradient(135deg, var(--purple), var(--pink));
+            transition: box-shadow 0.3s, transform 0.2s;
+        }
+        .hero__btn:hover {
+            box-shadow: 0 0 40px rgba(139,92,246,0.5);
+            transform: translateY(-2px);
+        }
+        .hero__note { margin-top: 16px; font-size: 0.85rem; color: var(--text-muted); }
+
+        .hero__preview {
+            margin-top: 48px; padding: 12px; max-width: 400px; width: 100%;
+        }
+        .hero__preview-inner {
+            width: 100%; aspect-ratio: 4/3; border-radius: 12px;
+            background: linear-gradient(135deg, rgba(139,92,246,0.3), rgba(236,72,153,0.3), rgba(6,182,212,0.3));
+            position: relative; overflow: hidden;
+        }
+        .hero__preview-inner::after {
+            content: ''; position: absolute; inset: 0;
+            background: linear-gradient(90deg, transparent 30%, rgba(255,255,255,0.08) 50%, transparent 70%);
+            animation: shimmer 3s ease-in-out infinite;
+        }
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+
+        /* ── SECTIONS ── */
+        .section { padding: 100px 0; }
+        .section__header { text-align: center; margin-bottom: 56px; }
+        .section__title {
+            font-size: clamp(1.6rem, 3vw, 2.4rem);
+            font-weight: 700; letter-spacing: -0.02em; margin-bottom: 12px;
+        }
+        .section__title::after {
+            content: ''; display: block; width: 60px; height: 3px; margin: 16px auto 0;
+            background: linear-gradient(90deg, var(--purple), var(--pink));
+            border-radius: 2px;
+        }
+
+        /* ── PAINS ── */
+        .pains-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+        .pain-card {
+            padding: 32px 24px; border-radius: 16px;
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+        .pain-card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 16px 48px rgba(139,92,246,0.15);
+        }
+        .pain-card__icon {
+            width: 48px; height: 48px; border-radius: 12px; display: flex;
+            align-items: center; justify-content: center; font-size: 1.4rem;
+            margin-bottom: 20px;
+            background: linear-gradient(135deg, rgba(139,92,246,0.2), rgba(236,72,153,0.2));
+        }
+        .pain-card__title { font-weight: 700; font-size: 1.1rem; margin-bottom: 8px; }
+        .pain-card__text { color: var(--text-muted); font-size: 0.9rem; }
+
+        /* ── BEFORE/AFTER ── */
+        .ba-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+        .ba-card {
+            padding: 16px; border-radius: 16px;
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+        .ba-card:hover {
+            transform: translateY(-6px);
+            box-shadow: 0 12px 40px rgba(139,92,246,0.15);
+        }
+        .ba-card__pair { display: flex; align-items: center; gap: 12px; }
+        .ba-card__img {
+            flex: 1; aspect-ratio: 3/4; border-radius: 10px;
+        }
+        .ba-card__img--before { background: linear-gradient(145deg, #2a2a3a, #3a3a4a, #2a2a3a); }
+        .ba-card__img--after { background: linear-gradient(145deg, #4c1d95, #6d28d9, #7c3aed); }
+        .ba-card__arrow { color: var(--text-muted); font-size: 1.2rem; flex-shrink: 0; }
+        .ba-card__labels {
+            display: flex; justify-content: space-between; margin-top: 10px; padding: 0 4px;
+            font-size: 0.75rem; color: var(--text-muted); font-weight: 500;
+        }
+
+        /* ── STEPS ── */
+        .steps-list { max-width: 600px; margin: 0 auto; display: flex; flex-direction: column; gap: 48px; }
+        .step {
+            display: flex; align-items: flex-start; gap: 28px;
+        }
+        .step__num {
+            font-size: 3.5rem; font-weight: 700; line-height: 1; flex-shrink: 0;
+            min-width: 80px;
+        }
+        .step__content { padding-top: 8px; }
+        .step__title { font-weight: 700; font-size: 1.15rem; margin-bottom: 6px; }
+        .step__text { color: var(--text-muted); font-size: 0.9rem; }
+
+        /* ── FEATURES ── */
+        .features-grid {
+            display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px;
+            max-width: 800px; margin: 0 auto;
+        }
+        .feature-card { padding: 28px; border-radius: 16px; }
+        .feature-card__icon {
+            width: 44px; height: 44px; border-radius: 12px; display: flex;
+            align-items: center; justify-content: center; font-size: 1.2rem;
+            margin-bottom: 16px;
+            background: linear-gradient(135deg, rgba(139,92,246,0.15), rgba(6,182,212,0.15));
+        }
+        .feature-card__title { font-weight: 700; margin-bottom: 6px; }
+        .feature-card__text { color: var(--text-muted); font-size: 0.9rem; }
+
+        /* ── PRICING ── */
+        .pricing-grid {
+            display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px;
+            max-width: 860px; margin: 0 auto;
+        }
+        .price-card {
+            padding: 36px 28px; border-radius: 20px; text-align: center;
+            position: relative; transition: transform 0.3s;
+        }
+        .price-card:hover { transform: translateY(-4px); }
+        .price-card--popular {
+            background: transparent;
+            border: 2px solid transparent;
+            background-image: linear-gradient(var(--bg), var(--bg)), linear-gradient(135deg, var(--purple), var(--pink));
+            background-origin: border-box;
+            background-clip: padding-box, border-box;
+        }
+        .price-card__badge {
+            position: absolute; top: -14px; left: 50%; transform: translateX(-50%);
+            padding: 5px 18px; border-radius: 20px; font-size: 0.75rem; font-weight: 600;
+            background: linear-gradient(135deg, var(--purple), var(--pink)); color: white;
+        }
+        .price-card__name { font-weight: 700; font-size: 1.2rem; margin-bottom: 8px; }
+        .price-card__count { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px; }
+        .price-card__price { font-size: 2.5rem; font-weight: 700; margin-bottom: 28px; }
+        .price-card__price span { font-size: 0.9rem; color: var(--text-muted); }
+        .price-card__btn {
+            display: block; width: 100%; padding: 12px; border-radius: 12px;
+            text-decoration: none; font-weight: 600; font-size: 0.95rem;
+            color: var(--text); border: 1px solid var(--card-border);
+            background: transparent; transition: all 0.3s; cursor: pointer;
+        }
+        .price-card__btn:hover {
+            background: linear-gradient(135deg, var(--purple), var(--pink));
+            border-color: transparent;
+        }
+        .price-card__btn--filled {
+            background: linear-gradient(135deg, var(--purple), var(--pink));
+            border-color: transparent;
+        }
+        .price-card__btn--filled:hover { box-shadow: 0 0 24px rgba(139,92,246,0.4); }
+
+        /* ── FAQ ── */
+        .faq-list { max-width: 700px; margin: 0 auto; }
+        .faq-item { border-bottom: 1px solid var(--card-border); }
+        .faq-item__q {
+            width: 100%; background: none; border: none; cursor: pointer;
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 22px 0; font-size: 1.05rem; font-weight: 600;
+            font-family: var(--font); color: var(--text); text-align: left;
+        }
+        .faq-item__chevron {
+            width: 20px; height: 20px; flex-shrink: 0; transition: transform 0.3s;
+            color: var(--purple);
+        }
+        .faq-item--open .faq-item__chevron { transform: rotate(180deg); }
+        .faq-item__a {
+            max-height: 0; overflow: hidden; transition: max-height 0.4s ease;
+        }
+        .faq-item__a-inner {
+            padding-bottom: 22px; color: var(--text-muted); font-size: 0.95rem; line-height: 1.7;
+        }
+
+        /* ── FINAL CTA ── */
+        .final-cta {
+            padding: 100px 0; text-align: center;
+            background: linear-gradient(135deg, rgba(139,92,246,0.15), rgba(236,72,153,0.1), rgba(6,182,212,0.1));
+            position: relative;
+        }
+        .final-cta__title {
+            font-size: clamp(1.5rem, 3vw, 2.2rem);
+            font-weight: 700; margin-bottom: 32px; letter-spacing: -0.02em;
+        }
+        .final-cta__btn {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 16px 36px; border-radius: 14px; font-size: 1.05rem;
+            font-weight: 700; text-decoration: none; color: var(--bg);
+            background: white; transition: box-shadow 0.3s, transform 0.2s;
+        }
+        .final-cta__btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 32px rgba(255,255,255,0.15);
+        }
+
+        /* ── FOOTER ── */
+        .footer {
+            padding: 32px 0; text-align: center; font-size: 0.85rem;
+            color: var(--text-muted); border-top: 1px solid var(--card-border);
+        }
+
+        /* ── ANIMATIONS ── */
+        .reveal {
+            opacity: 0; transform: translateY(30px);
+            transition: opacity 0.7s ease, transform 0.7s ease;
+        }
+        .reveal--visible { opacity: 1; transform: translateY(0); }
+
+        /* ── RESPONSIVE ── */
+        @media (max-width: 768px) {
+            .nav__links { display: none; }
+            .pains-grid, .ba-grid, .pricing-grid { grid-template-columns: 1fr; }
+            .features-grid { grid-template-columns: 1fr; }
+            .step { flex-direction: column; gap: 12px; text-align: center; }
+            .step__num { min-width: auto; }
+            .hero { padding: 100px 24px 60px; }
+            .blob { opacity: 0.2; }
+        }
+    </style>
+    <!-- Yandex.Metrika counter -->
+    <script type="text/javascript">
+        (function(m,e,t,r,i,k,a){
+            m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
+            m[i].l=1*new Date();
+            for (var j = 0; j < document.scripts.length; j++) {if (document.scripts[j].src === r) { return; }}
+            k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)
+        })(window, document,'script','https://mc.yandex.ru/metrika/tag.js?id=107010325', 'ym');
+
+        ym(107010325, 'init', {ssr:true, webvisor:true, clickmap:true, ecommerce:"dataLayer", referrer: document.referrer, url: location.href, accurateTrackBounce:true, trackLinks:true});
+    </script>
+    <noscript><div><img src="https://mc.yandex.ru/watch/107010325" style="position:absolute; left:-9999px;" alt="" /></div></noscript>
+    <!-- /Yandex.Metrika counter -->
+</head>
+<body>
+
+<div class="blobs">
+    <div class="blob blob--purple"></div>
+    <div class="blob blob--pink"></div>
+    <div class="blob blob--cyan"></div>
+</div>
+
+<div class="content">
+
+<!-- NAV -->
+<nav class="nav" id="nav">
+    <div class="nav__inner">
+        <a href="#" class="nav__logo"><span class="grad-text">Фото для резюме</span></a>
+        <div class="nav__links">
+            <a href="#result" class="nav__link">Результат</a>
+            <a href="#how" class="nav__link">Как работает</a>
+            <a href="#pricing" class="nav__link">Тарифы</a>
+            <a href="https://t.me/photoshoot_generator_bot" class="nav__cta">Попробовать</a>
+        </div>
+    </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+    <div class="hero__badge glass">✨ AI-powered Telegram Bot</div>
+    <h1 class="hero__title">Профессиональный портрет из&nbsp;<span class="grad-text">обычного селфи</span></h1>
+    <p class="hero__subtitle">AI-бот превращает любую фотографию в студийный портрет за 30 секунд</p>
+    <a href="https://t.me/photoshoot_generator_bot" class="hero__btn">Попробовать бесплатно →</a>
+    <p class="hero__note">Первая генерация бесплатно</p>
+    <div class="hero__preview glass">
+        <div class="hero__preview-inner"></div>
+    </div>
+</section>
+
+<!-- PAIN POINTS -->
+<section class="section">
+    <div class="container">
+        <div class="section__header reveal">
+            <h2 class="section__title">Знакомо?</h2>
+        </div>
+        <div class="pains-grid">
+            <div class="pain-card glass reveal">
+                <div class="pain-card__icon">💰</div>
+                <div class="pain-card__title">Дорого</div>
+                <div class="pain-card__text">Фотостудия стоит от 3000₽ и нужно ехать через весь город</div>
+            </div>
+            <div class="pain-card glass reveal">
+                <div class="pain-card__icon">⏰</div>
+                <div class="pain-card__title">Долго</div>
+                <div class="pain-card__text">Нужно деловое фото прямо сейчас, а подходящего нет</div>
+            </div>
+            <div class="pain-card glass reveal">
+                <div class="pain-card__icon">📷</div>
+                <div class="pain-card__title">Нет фото</div>
+                <div class="pain-card__text">На имеющихся фото — либо отдых, либо плохое качество</div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- BEFORE / AFTER -->
+<section class="section" id="result">
+    <div class="container">
+        <div class="section__header reveal">
+            <h2 class="section__title">Из селфи — в студийный портрет</h2>
+        </div>
+        <div class="ba-grid">
+            <div class="ba-card glass reveal">
+                <div class="ba-card__pair">
+                    <div class="ba-card__img ba-card__img--before"></div>
+                    <span class="ba-card__arrow">→</span>
+                    <div class="ba-card__img ba-card__img--after"></div>
+                </div>
+                <div class="ba-card__labels"><span>До</span><span>После</span></div>
+            </div>
+            <div class="ba-card glass reveal">
+                <div class="ba-card__pair">
+                    <div class="ba-card__img ba-card__img--before" style="background:linear-gradient(145deg,#1e293b,#334155,#1e293b)"></div>
+                    <span class="ba-card__arrow">→</span>
+                    <div class="ba-card__img ba-card__img--after" style="background:linear-gradient(145deg,#be185d,#ec4899,#f472b6)"></div>
+                </div>
+                <div class="ba-card__labels"><span>До</span><span>После</span></div>
+            </div>
+            <div class="ba-card glass reveal">
+                <div class="ba-card__pair">
+                    <div class="ba-card__img ba-card__img--before" style="background:linear-gradient(145deg,#1a2332,#2a3444,#1a2332)"></div>
+                    <span class="ba-card__arrow">→</span>
+                    <div class="ba-card__img ba-card__img--after" style="background:linear-gradient(145deg,#0e7490,#06b6d4,#22d3ee)"></div>
+                </div>
+                <div class="ba-card__labels"><span>До</span><span>После</span></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section class="section" id="how">
+    <div class="container">
+        <div class="section__header reveal">
+            <h2 class="section__title">Три простых шага</h2>
+        </div>
+        <div class="steps-list">
+            <div class="step reveal">
+                <div class="step__num grad-text">01</div>
+                <div class="step__content">
+                    <div class="step__title">Откройте бот</div>
+                    <div class="step__text">Перейдите в Telegram по кнопке ниже</div>
+                </div>
+            </div>
+            <div class="step reveal">
+                <div class="step__num grad-text">02</div>
+                <div class="step__content">
+                    <div class="step__title">Отправьте селфи</div>
+                    <div class="step__text">Выберите пол и загрузите любое фото, где видно лицо</div>
+                </div>
+            </div>
+            <div class="step reveal">
+                <div class="step__num grad-text">03</div>
+                <div class="step__content">
+                    <div class="step__title">Получите портрет</div>
+                    <div class="step__text">Результат через 30 секунд — выглядит как из настоящей студии</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- FEATURES -->
+<section class="section">
+    <div class="container">
+        <div class="section__header reveal">
+            <h2 class="section__title">Почему выбирают нас</h2>
+        </div>
+        <div class="features-grid">
+            <div class="feature-card glass reveal">
+                <div class="feature-card__icon">⚡</div>
+                <div class="feature-card__title">30 секунд</div>
+                <div class="feature-card__text">Результат быстрее, чем заварить кофе</div>
+            </div>
+            <div class="feature-card glass reveal">
+                <div class="feature-card__icon">🎨</div>
+                <div class="feature-card__title">Студийное качество</div>
+                <div class="feature-card__text">AI обучен на тысячах профессиональных портретов</div>
+            </div>
+            <div class="feature-card glass reveal">
+                <div class="feature-card__icon">🔒</div>
+                <div class="feature-card__title">Безопасно</div>
+                <div class="feature-card__text">Фото не сохраняются и не передаются третьим лицам</div>
+            </div>
+            <div class="feature-card glass reveal">
+                <div class="feature-card__icon">✨</div>
+                <div class="feature-card__title">Без регистрации</div>
+                <div class="feature-card__text">Просто откройте бот и отправьте фото</div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- PRICING -->
+<section class="section" id="pricing">
+    <div class="container">
+        <div class="section__header reveal">
+            <h2 class="section__title">Тарифы</h2>
+        </div>
+        <div class="pricing-grid">
+            <div class="price-card glass reveal">
+                <div class="price-card__name">Бесплатно</div>
+                <div class="price-card__count">1 генерация</div>
+                <div class="price-card__price">0₽</div>
+                <a href="https://t.me/photoshoot_generator_bot" class="price-card__btn">Попробовать</a>
+            </div>
+            <div class="price-card price-card--popular reveal">
+                <div class="price-card__badge">Популярный</div>
+                <div class="price-card__name">Стандарт</div>
+                <div class="price-card__count">5 генераций</div>
+                <div class="price-card__price">149₽</div>
+                <a href="https://t.me/photoshoot_generator_bot" class="price-card__btn price-card__btn--filled">Выбрать</a>
+            </div>
+            <div class="price-card glass reveal">
+                <div class="price-card__name">Про</div>
+                <div class="price-card__count">15 генераций</div>
+                <div class="price-card__price">349₽</div>
+                <a href="https://t.me/photoshoot_generator_bot" class="price-card__btn">Выбрать</a>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- FAQ -->
+<section class="section">
+    <div class="container">
+        <div class="section__header reveal">
+            <h2 class="section__title">Частые вопросы</h2>
+        </div>
+        <div class="faq-list">
+            <div class="faq-item reveal">
+                <button class="faq-item__q">Как это работает? <svg class="faq-item__chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></button>
+                <div class="faq-item__a"><div class="faq-item__a-inner">Вы отправляете селфи нашему Telegram-боту, AI анализирует фото и создаёт профессиональный студийный портрет за 30 секунд.</div></div>
+            </div>
+            <div class="faq-item reveal">
+                <button class="faq-item__q">Какое фото нужно отправить? <svg class="faq-item__chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></button>
+                <div class="faq-item__a"><div class="faq-item__a-inner">Подойдёт любое фото, где хорошо видно лицо. Лучше всего — селфи при дневном освещении.</div></div>
+            </div>
+            <div class="faq-item reveal">
+                <button class="faq-item__q">Безопасно ли это? <svg class="faq-item__chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></button>
+                <div class="faq-item__a"><div class="faq-item__a-inner">Да. Мы не сохраняем ваши фотографии и не передаём их третьим лицам.</div></div>
+            </div>
+            <div class="faq-item reveal">
+                <button class="faq-item__q">Можно ли сгенерировать несколько вариантов? <svg class="faq-item__chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></button>
+                <div class="faq-item__a"><div class="faq-item__a-inner">Да! Нажмите кнопку «Ещё вариант» и получите новый результат из того же фото.</div></div>
+            </div>
+            <div class="faq-item reveal">
+                <button class="faq-item__q">Как оплатить? <svg class="faq-item__chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></button>
+                <div class="faq-item__a"><div class="faq-item__a-inner">Оплата через ЮKassa — банковские карты, СБП, электронные кошельки.</div></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- FINAL CTA -->
+<section class="final-cta">
+    <div class="container">
+        <h2 class="final-cta__title reveal">Создайте профессиональный портрет прямо сейчас</h2>
+        <a href="https://t.me/photoshoot_generator_bot" class="final-cta__btn reveal">Открыть бот →</a>
+    </div>
+</section>
+
+<!-- FOOTER -->
+<footer class="footer">
+    <div class="container">&copy; 2026 Фото для резюме</div>
+</footer>
+
+</div>
+
+<script>
+// Nav scroll
+const nav = document.getElementById('nav');
+window.addEventListener('scroll', () => {
+    nav.classList.toggle('nav--scrolled', window.scrollY > 10);
+});
+
+// FAQ
+document.querySelectorAll('.faq-item__q').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const item = btn.parentElement;
+        const answer = item.querySelector('.faq-item__a');
+        const isOpen = item.classList.contains('faq-item--open');
+
+        document.querySelectorAll('.faq-item--open').forEach(el => {
+            el.classList.remove('faq-item--open');
+            el.querySelector('.faq-item__a').style.maxHeight = '0';
+        });
+
+        if (!isOpen) {
+            item.classList.add('faq-item--open');
+            answer.style.maxHeight = answer.scrollHeight + 'px';
+        }
+    });
+});
+
+// Reveal
+const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+        if (entry.isIntersecting) {
+            entry.target.classList.add('reveal--visible');
+            observer.unobserve(entry.target);
+        }
+    });
+}, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+
+document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+</script>
+</body>
+</html>

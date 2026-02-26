@@ -43,13 +43,13 @@ No test suite, linter, or build step exists. Dependencies: `pip install -r requi
 | `bot/services/yookassa_client.py` | Async wrapper over YooKassa SDK (payment creation + status check via `run_in_executor`) |
 | `bot/services/openai_client.py` | `OpenAIClient` — async prompt generation via OpenRouter (GPT-5.2) |
 | `bot/services/kie_client.py` | `KieClient` — async image transformation via kie.ai (google/nano-banana-edit), with polling and exponential backoff |
-| `bot/services/user_limits.py` | SQLite-based user limit tracking (1 free generation + paid credits, admin bypass), payment history, `init_db()` called at startup |
+| `bot/services/user_limits.py` | SQLite-based user limit tracking (1 free generation + paid credits, admin bypass), payment history, referral stats, `init_db()` called at startup |
 | `bot/states/generation.py` | `GenerationStates` FSM: `selecting_gender` → `awaiting_photo` → `processing` |
 | `bot/keyboards/inline.py` | Inline keyboard builders: gender selection, restart, regenerate, buy credits, package selection buttons |
 
 **Service clients are module-level singletons** (`kie_client = KieClient()`, `openai_client = OpenAIClient()`), imported directly by handlers.
 
-**Data persistence:** SQLite database at `/opt/photoshoot_ai/user_data.db` (production) or project root (local dev). Tables: `users(user_id, generations, last_photo_url, last_gender, paid_credits)` and `payments(id, user_id, package_id, credits, amount, status, created_at, confirmed_at, payment_provider_id)`. On first run, `init_db()` auto-migrates schema (adds `paid_credits` column, creates `payments` table) and migrates legacy JSON data.
+**Data persistence:** SQLite database at `/opt/photoshoot_ai/user_data.db` (production) or project root (local dev). Tables: `users(user_id, generations, last_photo_url, last_gender, paid_credits)`, `payments(id, user_id, package_id, credits, amount, status, created_at, confirmed_at, payment_provider_id)`, and `referrals(user_id, source, joined_at)`. On first run, `init_db()` auto-migrates schema (adds `paid_credits` column, creates `payments` and `referrals` tables) and migrates legacy JSON data.
 
 ## Environment Variables
 
@@ -82,6 +82,46 @@ Configured via `.env` (see `.env.example`):
 
 **Caveat:** Callback buttons on photo messages cannot use `edit_text()` — only `edit_caption()` or sending a new message. The `show_packages` handler detects this via `callback.message.photo` and sends a new message instead.
 
-## Deployment
+## Deep Link Tracking
+
+Deep links allow tracking traffic sources via `/start SOURCE` parameter.
+
+**Link format:** `https://t.me/photoshoot_generator_bot?start=SOURCE`
+
+**How it works:**
+- On `/start SOURCE`, source is saved to `referrals` table (first occurrence only — `INSERT OR IGNORE`)
+- Admin command `/stats` shows breakdown by source
+
+**Admin stats command:** Send `/stats` to the bot to see:
+```
+📊 Источники трафика:
+• vk: 42 чел. (55%)
+• instagram: 25 чел. (33%)
+• friends: 9 чел. (12%)
+
+Всего: 76
+```
+
+**Relevant code:** `save_referral()` and `get_referral_stats()` in `bot/services/user_limits.py`; `/stats` handler in `bot/handlers/start.py`.
+
+## Landing Page
+
+**Domain:** https://ai-photobot.ru (+ www)
+
+**Stack:** Static HTML served by **Caddy** (NOT nginx) on the same Yandex Cloud VM.
+
+**Files on server:** `/var/www/landing/` — `index.html` + `photo/` directory with images.
+
+**Source:** `landing/v1-clean-corporate.html` is the active landing. Other variants (`v2`–`v5`) are drafts kept locally.
+
+**Deploy landing changes:**
+```bash
+scp landing/v1-clean-corporate.html kudinow@89.169.163.73:/var/www/landing/index.html
+```
+No restart needed — Caddy serves static files, changes are instant.
+
+**Caddy config:** `/etc/caddy/Caddyfile` — auto-HTTPS, gzip, `file_server` from `/var/www/landing`.
+
+## Deployment (Bot)
 
 Production runs on Yandex Cloud Ubuntu 22.04 VM as systemd service (`photoshoot_ai.service`), under the `deploy` user at `/opt/photoshoot_ai`. One-time setup via `deploy.sh`. Update process: stop service → SCP files → restart. See `DEPLOY.md` and `SERVER_COMMANDS.md` for details.
