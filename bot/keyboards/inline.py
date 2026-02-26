@@ -15,6 +15,17 @@ def get_gender_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def get_style_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура выбора стиля одежды"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="👔 Деловой", callback_data="style:business")],
+            [InlineKeyboardButton(text="👕 Кежуал", callback_data="style:casual")],
+            [InlineKeyboardButton(text="🎨 Креативный", callback_data="style:creative")],
+        ]
+    )
+
+
 def get_restart_keyboard(
     has_last_photo: bool = False, has_credits: bool = True
 ) -> InlineKeyboardMarkup:

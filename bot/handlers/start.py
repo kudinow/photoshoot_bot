@@ -6,10 +6,12 @@ from aiogram.filters.command import CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
+from bot.config import STYLE_LABELS
 from bot.keyboards.inline import (
     get_buy_keyboard,
     get_gender_keyboard,
     get_restart_keyboard,
+    get_style_keyboard,
 )
 from bot.services.user_limits import (
     can_generate,
@@ -60,11 +62,12 @@ async def cmd_start(message: Message, state: FSMContext, command: CommandObject)
         "Привет! Я помогу превратить твоё фото "
         "в профессиональный студийный портрет.\n\n"
         "Как это работает:\n"
-        "1. Выбери стиль (мужской или женский)\n"
-        "2. Отправь своё фото\n"
-        "3. Получи профессиональный портрет!\n\n"
+        "1. Выбери пол (мужской или женский)\n"
+        "2. Выбери стиль одежды\n"
+        "3. Отправь своё фото\n"
+        "4. Получи профессиональный портрет!\n\n"
         f"{limit_text}\n\n"
-        "Выбери стиль фотографии:"
+        "Выбери пол:"
     )
 
     await message.answer(
@@ -103,7 +106,7 @@ async def restart_generation(
     await state.clear()
 
     await callback.message.answer(
-        "Выбери стиль фотографии:",
+        "Выбери пол:",
         reply_markup=get_gender_keyboard(),
     )
     await state.set_state(GenerationStates.selecting_gender)
@@ -129,7 +132,7 @@ async def regenerate_photo(
         return
 
     # Получаем последнюю фотографию
-    photo_url, gender = get_last_photo(user_id)
+    photo_url, gender, style = get_last_photo(user_id)
 
     if not photo_url or not gender:
         await callback.message.answer(
@@ -139,6 +142,8 @@ async def regenerate_photo(
         )
         await state.set_state(GenerationStates.selecting_gender)
         return
+
+    style = style or "casual"
 
     # Импортируем здесь, чтобы избежать циклических импортов
     from aiogram.types import BufferedInputFile
@@ -168,11 +173,12 @@ async def regenerate_photo(
 
     try:
         logger.info(
-            f"Regenerating for user {user_id}, gender: {gender}"
+            f"Regenerating for user {user_id}, "
+            f"gender: {gender}, style: {style}"
         )
 
         # Генерируем новый промпт
-        prompt = await openai_client.generate_prompt(gender)
+        prompt = await openai_client.generate_prompt(gender, style)
         logger.info(
             f"Prompt generated for user {user_id}, "
             f"length: {len(prompt)}"
@@ -261,7 +267,7 @@ async def regenerate_photo(
 async def select_gender(
     callback: CallbackQuery, state: FSMContext
 ) -> None:
-    """Обработчик выбора пола"""
+    """Обработчик выбора пола → переход к выбору стиля"""
     await callback.answer()
 
     gender = callback.data.split(":")[1]  # male или female
@@ -269,7 +275,32 @@ async def select_gender(
 
     gender_text = "мужской" if gender == "male" else "женский"
     await callback.message.edit_text(
-        f"Отлично! Выбран {gender_text} стиль.\n\n"
+        f"Пол: {gender_text}\n\n"
+        "Теперь выбери стиль одежды:",
+        reply_markup=get_style_keyboard(),
+    )
+    await state.set_state(GenerationStates.selecting_style)
+
+
+@router.callback_query(
+    F.data.startswith("style:"), GenerationStates.selecting_style
+)
+async def select_style(
+    callback: CallbackQuery, state: FSMContext
+) -> None:
+    """Обработчик выбора стиля одежды → переход к загрузке фото"""
+    await callback.answer()
+
+    style = callback.data.split(":")[1]  # business, casual, creative
+    await state.update_data(style=style)
+
+    data = await state.get_data()
+    gender = data.get("gender", "male")
+    gender_text = "мужской" if gender == "male" else "женский"
+    style_text = STYLE_LABELS.get(style, style)
+
+    await callback.message.edit_text(
+        f"Пол: {gender_text}, стиль: {style_text}\n\n"
         "Теперь отправь мне своё фото "
         "(лучше всего портретное, где хорошо видно лицо)."
     )

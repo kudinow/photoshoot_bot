@@ -63,6 +63,15 @@ def init_db() -> None:
         except sqlite3.OperationalError:
             pass  # Колонка уже существует
 
+        # Миграция: добавляем колонку last_style
+        try:
+            conn.execute(
+                "ALTER TABLE users ADD COLUMN last_style TEXT"
+            )
+            logger.info("Added last_style column to users table")
+        except sqlite3.OperationalError:
+            pass  # Колонка уже существует
+
         # Таблица истории платежей
         conn.execute("""
             CREATE TABLE IF NOT EXISTS payments (
@@ -245,29 +254,37 @@ def add_paid_credits(user_id: int, credits: int) -> None:
     logger.info(f"User {user_id}: added {credits} paid credits, total now: {total}")
 
 
-def save_last_photo(user_id: int, photo_url: str, gender: str) -> None:
+def save_last_photo(
+    user_id: int, photo_url: str, gender: str, style: str = "casual"
+) -> None:
     """Сохраняет последнюю фотографию пользователя"""
     with _get_conn() as conn:
         conn.execute(
-            """INSERT INTO users (user_id, last_photo_url, last_gender)
-               VALUES (?, ?, ?)
+            """INSERT INTO users
+               (user_id, last_photo_url, last_gender, last_style)
+               VALUES (?, ?, ?, ?)
                ON CONFLICT(user_id)
-               DO UPDATE SET last_photo_url = ?, last_gender = ?""",
-            (user_id, photo_url, gender, photo_url, gender),
+               DO UPDATE SET last_photo_url = ?,
+               last_gender = ?, last_style = ?""",
+            (user_id, photo_url, gender, style,
+             photo_url, gender, style),
         )
     logger.info(f"Saved last photo for user {user_id}")
 
 
-def get_last_photo(user_id: int) -> tuple[str | None, str | None]:
-    """Возвращает последнюю фотографию и пол пользователя"""
+def get_last_photo(
+    user_id: int,
+) -> tuple[str | None, str | None, str | None]:
+    """Возвращает последнюю фотографию, пол и стиль пользователя"""
     with _get_conn() as conn:
         row = conn.execute(
-            "SELECT last_photo_url, last_gender FROM users WHERE user_id = ?",
+            "SELECT last_photo_url, last_gender, last_style "
+            "FROM users WHERE user_id = ?",
             (user_id,),
         ).fetchone()
     if row:
-        return row[0], row[1]
-    return None, None
+        return row[0], row[1], row[2]
+    return None, None, None
 
 
 # --- Платежи ---

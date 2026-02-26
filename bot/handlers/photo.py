@@ -57,15 +57,16 @@ async def handle_photo(
         # Получаем данные из состояния
         data = await state.get_data()
         gender = data.get("gender", "male")
+        style = data.get("style", "casual")
 
         logger.info(
             f"Starting generation for user {user_id}, "
-            f"gender: {gender}"
+            f"gender: {gender}, style: {style}"
         )
 
         # Генерируем промпт через OpenAI
         logger.info(f"Generating prompt for user {user_id}...")
-        prompt = await openai_client.generate_prompt(gender)
+        prompt = await openai_client.generate_prompt(gender, style)
         logger.info(
             f"Prompt generated for user {user_id}, "
             f"length: {len(prompt)}"
@@ -101,8 +102,8 @@ async def handle_photo(
         # Увеличиваем счётчик генераций
         increment_generations(user_id)
 
-        # Сохраняем URL фото и пол для возможности регенерации
-        save_last_photo(user_id, file_url, gender)
+        # Сохраняем URL фото, пол и стиль для возможности регенерации
+        save_last_photo(user_id, file_url, gender, style)
 
         # Формируем caption с информацией об оставшихся генерациях
         remaining_after = get_remaining_generations(user_id)

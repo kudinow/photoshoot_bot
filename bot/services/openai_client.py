@@ -3,7 +3,12 @@ import logging
 
 from openai import AsyncOpenAI
 
-from bot.config import PROMPT_CRITICAL_SUFFIX, PROMPT_SYSTEM, settings
+from bot.config import (
+    PROMPT_CRITICAL_SUFFIX,
+    STYLE_LABELS,
+    build_system_prompt,
+    settings,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,27 +34,32 @@ class OpenAIClient:
         # GPT-5.2 для максимального качества генерации промптов
         self.model = "openai/gpt-5.2"
 
-    async def generate_prompt(self, gender: str, max_retries: int = 3) -> str:
+    async def generate_prompt(
+        self, gender: str, style: str = "casual", max_retries: int = 3
+    ) -> str:
         """
-        Генерирует промпт для изображения на основе пола.
+        Генерирует промпт для изображения на основе пола и стиля.
 
         Args:
             gender: "male" или "female"
+            style: "casual", "business" или "creative"
             max_retries: максимальное количество попыток
 
         Returns:
             Сгенерированный промпт для kie.ai
         """
         gender_text = "мужчины" if gender == "male" else "женщины"
+        style_text = STYLE_LABELS.get(style, "кежуал")
+        system_prompt = build_system_prompt(gender, style)
 
         user_message = (
             f"Сгенерируй один уникальный промпт для профессионального "
-            f"студийного портрета {gender_text}. "
+            f"студийного портрета {gender_text} в стиле «{style_text}». "
             f"Следуй структуре промпта из гайдлайнов. "
             f"ВАЖНО: Выбери РАЗНЫЕ предметы одежды, цвет и текстуру, "
             f"чем в предыдущих примерах. "
             f"Создай оригинальную комбинацию из расширенного списка "
-            f"casual/smart casual одежды. "
+            f"одежды для выбранного стиля. "
             f"Верни ТОЛЬКО текст промпта на английском, без пояснений."
         )
 
@@ -57,7 +67,7 @@ class OpenAIClient:
         for attempt in range(max_retries):
             try:
                 logger.info(
-                    f"Generating prompt for {gender}, "
+                    f"Generating prompt for {gender}/{style}, "
                     f"attempt {attempt + 1}/{max_retries}"
                 )
 
@@ -65,7 +75,7 @@ class OpenAIClient:
                     model=self.model,
                     max_tokens=500,
                     messages=[
-                        {"role": "system", "content": PROMPT_SYSTEM},
+                        {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_message},
                     ],
                 )
@@ -76,7 +86,7 @@ class OpenAIClient:
                 full_prompt = generated_prompt + PROMPT_CRITICAL_SUFFIX
 
                 logger.info(
-                    f"Generated prompt for {gender}: "
+                    f"Generated prompt for {gender}/{style}: "
                     f"{generated_prompt[:100]}..."
                 )
 
