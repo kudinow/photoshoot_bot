@@ -10,7 +10,9 @@ from bot.services.openai_client import OpenAIClientError, openai_client
 from bot.services.user_limits import (
     can_generate,
     get_remaining_generations,
+    has_free_generations,
     increment_generations,
+    log_generation,
     save_last_photo,
 )
 from bot.states.generation import GenerationStates
@@ -100,7 +102,9 @@ async def handle_photo(
         await processing_msg.delete()
 
         # Увеличиваем счётчик генераций
+        is_paid = not has_free_generations(user_id)
         increment_generations(user_id)
+        log_generation(user_id, gender, style, is_paid)
 
         # Сохраняем URL фото, пол и стиль для возможности регенерации
         save_last_photo(user_id, file_url, gender, style)

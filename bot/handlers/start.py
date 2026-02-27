@@ -14,12 +14,14 @@ from bot.keyboards.inline import (
     get_style_keyboard,
 )
 from bot.services.user_limits import (
+    ADMIN_ID,
     can_generate,
     get_last_photo,
     get_paid_credits,
     get_referral_stats,
     get_remaining_generations,
     is_admin,
+    is_new_user,
     save_referral,
 )
 from bot.states.generation import GenerationStates
@@ -35,12 +37,30 @@ async def cmd_start(message: Message, state: FSMContext, command: CommandObject)
     await state.clear()
 
     user_id = message.from_user.id
+    new_user = is_new_user(user_id)
 
     # Сохраняем источник перехода (диплинк)
     source = command.args
     if source:
         save_referral(user_id, source)
         logger.info(f"User {user_id} came from: {source}")
+
+    # Уведомляем админа о новом пользователе
+    if new_user and not is_admin(user_id):
+        user = message.from_user
+        name = user.full_name or ""
+        username = f" (@{user.username})" if user.username else ""
+        source_text = f"\nИсточник: {source}" if source else ""
+        try:
+            await message.bot.send_message(
+                ADMIN_ID,
+                f"👤 Новый пользователь!\n"
+                f"{name}{username}\n"
+                f"ID: {user_id}{source_text}",
+            )
+        except Exception as e:
+            logger.error(f"Failed to notify admin about new user: {e}")
+
     remaining = get_remaining_generations(user_id)
 
     # Формируем текст о лимите
@@ -153,7 +173,11 @@ async def regenerate_photo(
         OpenAIClientError,
         openai_client,
     )
-    from bot.services.user_limits import increment_generations
+    from bot.services.user_limits import (
+        has_free_generations,
+        increment_generations,
+        log_generation,
+    )
 
     await state.set_state(GenerationStates.processing)
 
@@ -197,7 +221,9 @@ async def regenerate_photo(
         await processing_msg.delete()
 
         # Увеличиваем счётчик генераций
+        is_paid = not has_free_generations(user_id)
         increment_generations(user_id)
+        log_generation(user_id, gender, style, is_paid)
 
         # Формируем caption с информацией об оставшихся генерациях
         remaining_after = get_remaining_generations(user_id)

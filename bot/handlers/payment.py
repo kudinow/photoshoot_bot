@@ -14,6 +14,7 @@ from bot.keyboards.inline import (
     get_payment_url_keyboard,
 )
 from bot.services.user_limits import (
+    ADMIN_ID,
     cancel_payment,
     confirm_payment,
     create_payment,
@@ -244,6 +245,9 @@ async def check_payment_status(callback: CallbackQuery) -> None:
                 f"User {user_id}: manual check confirmed "
                 f"payment {internal_id}"
             )
+            await _notify_admin_payment(
+                callback.bot, user_id, callback.from_user, pkg
+            )
     elif status == "canceled":
         cancel_payment(internal_id)
         await callback.message.edit_text(
@@ -337,6 +341,9 @@ async def _poll_payment(
                     f"Poll: payment {internal_id} "
                     f"confirmed for user {user_id}"
                 )
+                await _notify_admin_payment(
+                    bot, user_id, None, pkg
+                )
             return
 
         if status == "canceled":
@@ -363,3 +370,26 @@ async def _poll_payment(
             f"Poll: payment {internal_id} timed out "
             f"after {_POLL_MAX_DURATION}s"
         )
+
+
+async def _notify_admin_payment(
+    bot: Bot, user_id: int, user, pkg
+) -> None:
+    """Уведомляет админа об успешной оплате"""
+    if user:
+        name = user.full_name or ""
+        username = f" (@{user.username})" if user.username else ""
+    else:
+        name = ""
+        username = ""
+
+    try:
+        await bot.send_message(
+            ADMIN_ID,
+            f"💰 Оплата!\n"
+            f"Пользователь: {name}{username}\n"
+            f"ID: {user_id}\n"
+            f"Пакет: {pkg.credits} генераций за {pkg.price_rub} ₽",
+        )
+    except Exception as e:
+        logger.error(f"Failed to notify admin about payment: {e}")

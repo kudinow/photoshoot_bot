@@ -1,6 +1,7 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from bot.config import CREDIT_PACKAGES
+from bot.services.user_limits import SEGMENT_LABELS, get_segment_count
 
 
 def get_gender_keyboard() -> InlineKeyboardMarkup:
@@ -120,6 +121,38 @@ def get_after_payment_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(
                 text="📸 Создать фото",
                 callback_data="restart",
+            )],
+        ]
+    )
+
+
+def get_segment_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура выбора сегмента для рассылки"""
+    buttons = []
+    for segment_id, label in SEGMENT_LABELS.items():
+        count = get_segment_count(segment_id)
+        buttons.append([InlineKeyboardButton(
+            text=f"{label} ({count})",
+            callback_data=f"segment:{segment_id}",
+        )])
+    buttons.append([InlineKeyboardButton(
+        text="Отмена",
+        callback_data="broadcast_cancel",
+    )])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_broadcast_confirm_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура подтверждения рассылки"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(
+                text="Отправить",
+                callback_data="broadcast_confirm",
+            )],
+            [InlineKeyboardButton(
+                text="Отмена",
+                callback_data="broadcast_cancel",
             )],
         ]
     )

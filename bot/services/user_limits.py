@@ -98,6 +98,67 @@ def init_db() -> None:
             )
         """)
 
+        # Миграция: добавляем колонку created_at для отслеживания регистрации
+        try:
+            conn.execute("ALTER TABLE users ADD COLUMN created_at TEXT")
+            logger.info("Added created_at column to users table")
+            # Бэкфил: из referrals.joined_at
+            conn.execute("""
+                UPDATE users SET created_at = (
+                    SELECT joined_at FROM referrals
+                    WHERE referrals.user_id = users.user_id
+                ) WHERE created_at IS NULL
+                  AND user_id IN (SELECT user_id FROM referrals)
+            """)
+            # Бэкфил: из первого платежа
+            conn.execute("""
+                UPDATE users SET created_at = (
+                    SELECT MIN(created_at) FROM payments
+                    WHERE payments.user_id = users.user_id
+                ) WHERE created_at IS NULL
+                  AND user_id IN (SELECT DISTINCT user_id FROM payments)
+            """)
+            # Остальные: сентинел
+            conn.execute(
+                "UPDATE users SET created_at = '2025-01-01 00:00:00' "
+                "WHERE created_at IS NULL"
+            )
+            logger.info("Backfilled created_at for existing users")
+        except sqlite3.OperationalError:
+            pass  # Колонка уже существует
+
+        # Таблица лога генераций (для аналитики и retention)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS generations_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                gender TEXT,
+                style TEXT,
+                is_paid INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (user_id) REFERENCES users(user_id)
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_genlog_user_date
+            ON generations_log(user_id, created_at)
+        """)
+
+        # Таблица лога рассылок
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS broadcasts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                segment TEXT NOT NULL,
+                message_text TEXT NOT NULL,
+                total_recipients INTEGER NOT NULL,
+                sent INTEGER,
+                blocked INTEGER,
+                failed INTEGER,
+                started_at TEXT NOT NULL DEFAULT (datetime('now')),
+                finished_at TEXT
+            )
+        """)
+
     # Миграция из JSON
     json_path = _get_json_path()
     if json_path.exists():
@@ -147,9 +208,40 @@ def _migrate_from_json(json_path: Path) -> None:
     )
 
 
+def _ensure_user(conn: sqlite3.Connection, user_id: int) -> None:
+    """Создаёт запись пользователя, если её нет (с created_at)"""
+    conn.execute(
+        "INSERT OR IGNORE INTO users (user_id, created_at) "
+        "VALUES (?, datetime('now'))",
+        (user_id,),
+    )
+
+
+def log_generation(
+    user_id: int, gender: str, style: str, is_paid: bool
+) -> None:
+    """Логирует генерацию для аналитики"""
+    with _get_conn() as conn:
+        conn.execute(
+            """INSERT INTO generations_log (user_id, gender, style, is_paid)
+               VALUES (?, ?, ?, ?)""",
+            (user_id, gender, style, int(is_paid)),
+        )
+
+
 def is_admin(user_id: int) -> bool:
     """Проверяет, является ли пользователь админом"""
     return user_id == ADMIN_ID
+
+
+def is_new_user(user_id: int) -> bool:
+    """Проверяет, является ли пользователь новым (нет записи в БД)"""
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM users WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+    return row is None
 
 
 def get_generations_count(user_id: int) -> int:
@@ -202,6 +294,8 @@ def increment_generations(user_id: int) -> None:
         return
 
     with _get_conn() as conn:
+        _ensure_user(conn, user_id)
+
         row = conn.execute(
             "SELECT generations, paid_credits FROM users WHERE user_id = ?",
             (user_id,),
@@ -213,10 +307,8 @@ def increment_generations(user_id: int) -> None:
         if current_generations < MAX_FREE_GENERATIONS:
             # Списываем бесплатную генерацию
             conn.execute(
-                """INSERT INTO users (user_id, generations)
-                   VALUES (?, 1)
-                   ON CONFLICT(user_id)
-                   DO UPDATE SET generations = generations + 1""",
+                "UPDATE users SET generations = generations + 1 "
+                "WHERE user_id = ?",
                 (user_id,),
             )
             logger.info(
@@ -243,12 +335,11 @@ def increment_generations(user_id: int) -> None:
 def add_paid_credits(user_id: int, credits: int) -> None:
     """Добавляет оплаченные генерации пользователю"""
     with _get_conn() as conn:
+        _ensure_user(conn, user_id)
         conn.execute(
-            """INSERT INTO users (user_id, paid_credits)
-               VALUES (?, ?)
-               ON CONFLICT(user_id)
-               DO UPDATE SET paid_credits = paid_credits + ?""",
-            (user_id, credits, credits),
+            "UPDATE users SET paid_credits = paid_credits + ? "
+            "WHERE user_id = ?",
+            (credits, user_id),
         )
     total = get_paid_credits(user_id)
     logger.info(f"User {user_id}: added {credits} paid credits, total now: {total}")
@@ -259,15 +350,11 @@ def save_last_photo(
 ) -> None:
     """Сохраняет последнюю фотографию пользователя"""
     with _get_conn() as conn:
+        _ensure_user(conn, user_id)
         conn.execute(
-            """INSERT INTO users
-               (user_id, last_photo_url, last_gender, last_style)
-               VALUES (?, ?, ?, ?)
-               ON CONFLICT(user_id)
-               DO UPDATE SET last_photo_url = ?,
-               last_gender = ?, last_style = ?""",
-            (user_id, photo_url, gender, style,
-             photo_url, gender, style),
+            "UPDATE users SET last_photo_url = ?, last_gender = ?, "
+            "last_style = ? WHERE user_id = ?",
+            (photo_url, gender, style, user_id),
         )
     logger.info(f"Saved last photo for user {user_id}")
 
@@ -404,3 +491,87 @@ def get_referral_stats() -> list[tuple[str, int]]:
             "SELECT source, COUNT(*) FROM referrals "
             "GROUP BY source ORDER BY COUNT(*) DESC"
         ).fetchall()
+
+
+# --- Рассылки ---
+
+SEGMENT_QUERIES: dict[str, str] = {
+    "all": """
+        SELECT user_id FROM users ORDER BY user_id
+    """,
+    "free_exhausted": """
+        SELECT u.user_id FROM users u
+        WHERE u.generations >= 1
+          AND u.paid_credits = 0
+          AND NOT EXISTS (
+              SELECT 1 FROM payments p
+              WHERE p.user_id = u.user_id AND p.status = 'confirmed'
+          )
+        ORDER BY u.user_id
+    """,
+    "abandoned_cart": """
+        SELECT DISTINCT p.user_id FROM payments p
+        WHERE p.status = 'pending'
+          AND NOT EXISTS (
+              SELECT 1 FROM payments p2
+              WHERE p2.user_id = p.user_id AND p2.status = 'confirmed'
+          )
+        ORDER BY p.user_id
+    """,
+    "never_generated": """
+        SELECT user_id FROM users
+        WHERE generations = 0 AND paid_credits = 0
+        ORDER BY user_id
+    """,
+}
+
+SEGMENT_LABELS: dict[str, str] = {
+    "all": "Все пользователи",
+    "free_exhausted": "Использовали бесплатную, не купили",
+    "abandoned_cart": "Брошенная корзина",
+    "never_generated": "Не начали использовать",
+}
+
+
+def get_segment_user_ids(segment: str) -> list[int]:
+    """Возвращает список user_id для заданного сегмента"""
+    query = SEGMENT_QUERIES.get(segment)
+    if not query:
+        logger.warning(f"Unknown broadcast segment: {segment}")
+        return []
+    with _get_conn() as conn:
+        rows = conn.execute(query).fetchall()
+    return [row[0] for row in rows]
+
+
+def get_segment_count(segment: str) -> int:
+    """Возвращает количество пользователей в сегменте"""
+    return len(get_segment_user_ids(segment))
+
+
+def create_broadcast_log(
+    segment: str, message_text: str, total: int
+) -> int:
+    """Создаёт запись о рассылке, возвращает ID"""
+    with _get_conn() as conn:
+        cursor = conn.execute(
+            """INSERT INTO broadcasts
+               (segment, message_text, total_recipients)
+               VALUES (?, ?, ?)""",
+            (segment, message_text, total),
+        )
+        return cursor.lastrowid
+
+
+def finish_broadcast_log(
+    broadcast_id: int, sent: int, blocked: int, failed: int
+) -> None:
+    """Обновляет запись о рассылке после завершения"""
+    with _get_conn() as conn:
+        conn.execute(
+            """UPDATE broadcasts
+               SET sent = ?, blocked = ?, failed = ?,
+                   finished_at = datetime('now')
+               WHERE id = ?""",
+            (sent, blocked, failed, broadcast_id),
+        )
