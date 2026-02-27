@@ -63,6 +63,13 @@
             text-decoration: none; transition: background 0.2s;
         }
         .nav__cta:hover { background: var(--blue-700); }
+        .nav__links { display: flex; align-items: center; gap: 24px; }
+        .nav__link {
+            color: var(--gray-700); text-decoration: none;
+            font-size: 0.875rem; font-weight: 500;
+            transition: color 0.2s;
+        }
+        .nav__link:hover { color: var(--blue-600); }
 
         /* ── HERO ── */
         .hero {
@@ -441,6 +448,8 @@
             /* Nav — compact single line */
             .nav__inner { height: 52px; padding: 0 max(16px, 5vw); }
             .nav__logo { font-size: 0.95rem; }
+            .nav__links { gap: 12px; }
+            .nav__link { font-size: 0.75rem; }
             .nav__cta {
                 padding: 7px 14px; font-size: 0.75rem;
                 white-space: nowrap; border-radius: 6px;
@@ -525,7 +534,7 @@
             .pricing-compare__vs { padding: 4px 0; }
             .pricing-compare__card { padding: 20px; }
             .faq-card { padding: 20px; }
-            .showcase-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+            .showcase-grid { grid-template-columns: 1fr; gap: 16px; max-width: 360px; margin: 0 auto; }
             .showcase-pair { padding: 10px; border-radius: 12px; }
             .showcase-pair__images { gap: 8px; }
             .showcase-pair__img { border-radius: 8px; }
@@ -568,8 +577,11 @@
 <!-- NAV -->
 <nav class="nav" id="nav">
     <div class="nav__inner">
-        <a href="#" class="nav__logo">Фото для резюме</a>
-        <a href="https://t.me/photoshoot_generator_bot" class="nav__cta">Попробовать бесплатно</a>
+        <a href="/" class="nav__logo">Фото для резюме</a>
+        <div class="nav__links">
+            <a href="/blog/" class="nav__link">Блог</a>
+            <a href="https://t.me/photoshoot_generator_bot?start=landing" class="nav__cta">Сгенерировать портрет</a>
+        </div>
     </div>
 </nav>
 
@@ -578,7 +590,7 @@
     <div class="hero__text">
         <h1 class="hero__title">Профессиональные фотографии для&nbsp;вашего резюме и&nbsp;LinkedIn</h1>
         <p class="hero__subtitle">AI-бот в Telegram превращает любую фотографию в студийный портрет за 30 секунд. Идеально для резюме, LinkedIn и&nbsp;социальных сетей.</p>
-        <a href="https://t.me/photoshoot_generator_bot" class="hero__btn">Попробовать бесплатно →</a>
+        <a href="https://t.me/photoshoot_generator_bot?start=landing" class="hero__btn">Сгенерировать портрет →</a>
         <p class="hero__note">Первая генерация бесплатно — без регистрации и карты</p>
     </div>
     <div class="hero__visual">
@@ -800,7 +812,7 @@
                 <div class="price-card__count">5 генераций</div>
                 <div class="price-card__price">149 ₽</div>
                 <div class="price-card__per">30 ₽ за фото</div>
-                <a href="https://t.me/photoshoot_generator_bot" class="price-card__btn">Выбрать</a>
+                <a href="https://t.me/photoshoot_generator_bot?start=landing" class="price-card__btn">Выбрать</a>
             </div>
             <div class="price-card price-card--popular reveal">
                 <div class="price-card__badge">Выбирают чаще</div>
@@ -808,14 +820,14 @@
                 <div class="price-card__count">15 генераций</div>
                 <div class="price-card__price">349 ₽</div>
                 <div class="price-card__per">23 ₽ за фото</div>
-                <a href="https://t.me/photoshoot_generator_bot" class="price-card__btn price-card__btn--filled">Выбрать</a>
+                <a href="https://t.me/photoshoot_generator_bot?start=landing" class="price-card__btn price-card__btn--filled">Выбрать</a>
             </div>
             <div class="price-card reveal">
                 <div class="price-card__name">Макс</div>
                 <div class="price-card__count">50 генераций</div>
                 <div class="price-card__price">899 ₽</div>
                 <div class="price-card__per">18 ₽ за фото</div>
-                <a href="https://t.me/photoshoot_generator_bot" class="price-card__btn">Выбрать</a>
+                <a href="https://t.me/photoshoot_generator_bot?start=landing" class="price-card__btn">Выбрать</a>
             </div>
         </div>
     </div>
@@ -854,13 +866,13 @@
         <p class="cta-section__pretitle reveal">Занимает 30 секунд</p>
         <h2 class="cta-section__title reveal">Попробуйте прямо сейчас — первое фото бесплатно</h2>
         <p class="cta-section__subtitle reveal">Без регистрации, без карты, без обязательств</p>
-        <a href="https://t.me/photoshoot_generator_bot" class="cta-section__btn reveal">Открыть бот в Telegram →</a>
+        <a href="https://t.me/photoshoot_generator_bot?start=landing" class="cta-section__btn reveal">Сгенерировать портрет →</a>
     </div>
 </section>
 
 <!-- STICKY MOBILE CTA -->
 <div class="sticky-cta" id="stickyCta">
-    <a href="https://t.me/photoshoot_generator_bot" class="sticky-cta__btn">Сгенерировать портрет →</a>
+    <a href="https://t.me/photoshoot_generator_bot?start=landing" class="sticky-cta__btn">Сгенерировать портрет →</a>
 </div>
 
 <!-- FOOTER -->

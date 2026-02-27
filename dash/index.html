@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PhotoBot Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg-root:#111113;
+  --bg-surface:#1a1a1e;
+  --bg-card:#1e1e22;
+  --bg-card-hover:#242428;
+  --border:#2a2a2f;
+  --border-subtle:#222226;
+  --text-primary:#ededee;
+  --text-secondary:#70707a;
+  --text-tertiary:#50505a;
+  --green:#3ecf8e;
+  --green-dim:rgba(62,207,142,.12);
+  --blue:#3b82f6;
+  --blue-dim:rgba(59,130,246,.12);
+  --purple:#8b5cf6;
+  --purple-dim:rgba(139,92,246,.12);
+  --orange:#f59e0b;
+  --orange-dim:rgba(245,158,11,.12);
+  --red:#ef4444;
+  --red-dim:rgba(239,68,68,.12);
+  --radius:8px;
+  --font-body:'Inter',system-ui,sans-serif;
+  --font-mono:'JetBrains Mono','SF Mono',monospace;
+}
+html{background:var(--bg-root);color:var(--text-primary);font-family:var(--font-body);-webkit-font-smoothing:antialiased}
+body{min-height:100vh}
+
+/* Top accent bar */
+body::before{content:'';position:fixed;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--green),var(--blue),var(--purple));z-index:100;opacity:.7}
+
+/* Layout */
+.shell{max-width:1280px;margin:0 auto;padding:0 24px 48px}
+
+/* Navbar */
+.nav{display:flex;align-items:center;justify-content:space-between;padding:20px 0;border-bottom:1px solid var(--border-subtle);margin-bottom:28px;gap:12px;flex-wrap:wrap}
+.nav-brand{display:flex;align-items:center;gap:10px}
+.nav-logo{width:28px;height:28px;border-radius:6px;background:linear-gradient(135deg,var(--green),var(--blue));display:grid;place-items:center}
+.nav-logo svg{width:16px;height:16px;fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.nav-title{font-size:15px;font-weight:600;letter-spacing:-.02em;color:var(--text-primary)}
+.nav-meta{font-size:12px;color:var(--text-tertiary);font-family:var(--font-mono);font-weight:500}
+
+/* Summary cards */
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}
+.card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;position:relative;overflow:hidden;transition:background .15s,border-color .15s}
+.card:hover{background:var(--bg-card-hover);border-color:#333338}
+.card-label{font-size:12px;font-weight:500;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.card-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.card-value{font-family:var(--font-mono);font-size:28px;font-weight:700;letter-spacing:-.03em;line-height:1;margin-bottom:6px}
+.card-sub{font-size:12px;color:var(--text-tertiary);font-family:var(--font-mono);font-weight:500}
+.card--green .card-dot{background:var(--green);box-shadow:0 0 8px var(--green)}
+.card--blue .card-dot{background:var(--blue);box-shadow:0 0 8px var(--blue)}
+.card--purple .card-dot{background:var(--purple);box-shadow:0 0 8px var(--purple)}
+.card--orange .card-dot{background:var(--orange);box-shadow:0 0 8px var(--orange)}
+
+/* Chart grid */
+.charts{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+.chart-panel{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;transition:background .15s,border-color .15s}
+.chart-panel:hover{background:var(--bg-card-hover);border-color:#333338}
+.chart-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.chart-title{font-size:13px;font-weight:600;color:var(--text-primary);letter-spacing:-.01em}
+.chart-badge{font-size:11px;font-family:var(--font-mono);font-weight:500;padding:3px 8px;border-radius:4px;color:var(--text-secondary);background:var(--bg-root);border:1px solid var(--border)}
+.chart-wrap{position:relative;height:220px}
+.chart-wrap canvas{width:100%!important;height:100%!important}
+
+/* Empty state */
+.empty{display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-tertiary);font-size:13px;font-style:italic}
+
+/* Loading skeleton */
+.loading{display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:12px}
+.loading-text{font-size:13px;color:var(--text-tertiary);font-family:var(--font-mono);font-weight:500}
+.spinner{width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--green);border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Error state */
+.error{display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:8px}
+.error-icon{font-size:24px;opacity:.5}
+.error-text{font-size:13px;color:var(--text-tertiary)}
+
+/* Reveal animations */
+@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+.reveal{animation:fadeUp .4s ease-out both}
+.reveal-1{animation-delay:.05s}
+.reveal-2{animation-delay:.1s}
+.reveal-3{animation-delay:.15s}
+.reveal-4{animation-delay:.2s}
+.reveal-5{animation-delay:.25s}
+.reveal-6{animation-delay:.3s}
+.reveal-7{animation-delay:.35s}
+.reveal-8{animation-delay:.4s}
+.reveal-9{animation-delay:.45s}
+.reveal-10{animation-delay:.5s}
+.reveal-11{animation-delay:.55s}
+.reveal-12{animation-delay:.6s}
+.reveal-13{animation-delay:.65s}
+
+/* Responsive */
+@media(max-width:1024px){
+  .cards{grid-template-columns:repeat(2,1fr)}
+  .charts{grid-template-columns:1fr}
+}
+@media(max-width:600px){
+  .shell{padding:0 16px 32px}
+  .cards{grid-template-columns:1fr}
+  .card-value{font-size:24px}
+  .chart-wrap{height:180px}
+}
+</style>
+</head>
+<body>
+
+<div id="loading" class="loading">
+  <div class="spinner"></div>
+  <div class="loading-text">Загрузка данных...</div>
+</div>
+
+<div id="app" class="shell" style="display:none">
+  <!-- Navbar -->
+  <nav class="nav reveal reveal-1">
+    <div class="nav-brand">
+      <div class="nav-logo">
+        <svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+      </div>
+      <span class="nav-title">PhotoBot Dashboard</span>
+    </div>
+    <span class="nav-meta" id="updated"></span>
+  </nav>
+
+  <!-- Summary cards -->
+  <div class="cards">
+    <div class="card card--blue reveal reveal-2">
+      <div class="card-label"><span class="card-dot"></span>Пользователи</div>
+      <div class="card-value" id="c-users">—</div>
+      <div class="card-sub" id="c-users-sub"></div>
+    </div>
+    <div class="card card--green reveal reveal-3">
+      <div class="card-label"><span class="card-dot"></span>Выручка</div>
+      <div class="card-value" id="c-revenue">—</div>
+      <div class="card-sub" id="c-revenue-sub"></div>
+    </div>
+    <div class="card card--green reveal reveal-4" id="c-profit-card">
+      <div class="card-label"><span class="card-dot"></span>Прибыль</div>
+      <div class="card-value" id="c-profit">—</div>
+      <div class="card-sub" id="c-profit-sub"></div>
+    </div>
+    <div class="card card--purple reveal reveal-5">
+      <div class="card-label"><span class="card-dot"></span>Конверсия</div>
+      <div class="card-value" id="c-conversion">—</div>
+      <div class="card-sub" id="c-conversion-sub"></div>
+    </div>
+  </div>
+
+  <!-- Charts -->
+  <div class="charts">
+    <div class="chart-panel reveal reveal-6">
+      <div class="chart-header">
+        <span class="chart-title">Пользователи</span>
+        <span class="chart-badge" id="badge-users"></span>
+      </div>
+      <div class="chart-wrap" id="wrap-users"><canvas id="ch-users"></canvas></div>
+    </div>
+    <div class="chart-panel reveal reveal-7">
+      <div class="chart-header">
+        <span class="chart-title">Выручка</span>
+        <span class="chart-badge" id="badge-revenue"></span>
+      </div>
+      <div class="chart-wrap" id="wrap-revenue"><canvas id="ch-revenue"></canvas></div>
+    </div>
+    <div class="chart-panel reveal reveal-8">
+      <div class="chart-header">
+        <span class="chart-title">Генерации по дням</span>
+        <span class="chart-badge" id="badge-gens"></span>
+      </div>
+      <div class="chart-wrap" id="wrap-gens"><canvas id="ch-gens"></canvas></div>
+    </div>
+    <div class="chart-panel reveal reveal-9">
+      <div class="chart-header">
+        <span class="chart-title">P&L</span>
+        <span class="chart-badge" id="badge-pl"></span>
+      </div>
+      <div class="chart-wrap" id="wrap-pl"><canvas id="ch-pl"></canvas></div>
+    </div>
+    <div class="chart-panel reveal reveal-10">
+      <div class="chart-header">
+        <span class="chart-title">Пакеты</span>
+        <span class="chart-badge" id="badge-pkg"></span>
+      </div>
+      <div class="chart-wrap" id="wrap-pkg"><canvas id="ch-pkg"></canvas></div>
+    </div>
+    <div class="chart-panel reveal reveal-11">
+      <div class="chart-header">
+        <span class="chart-title">Источники трафика</span>
+        <span class="chart-badge" id="badge-src"></span>
+      </div>
+      <div class="chart-wrap" id="wrap-src"><canvas id="ch-src"></canvas></div>
+    </div>
+    <div class="chart-panel reveal reveal-12">
+      <div class="chart-header">
+        <span class="chart-title">Стили</span>
+        <span class="chart-badge" id="badge-style"></span>
+      </div>
+      <div class="chart-wrap" id="wrap-style"><canvas id="ch-style"></canvas></div>
+    </div>
+    <div class="chart-panel reveal reveal-13">
+      <div class="chart-header">
+        <span class="chart-title">Retention</span>
+        <span class="chart-badge" id="badge-ret"></span>
+      </div>
+      <div class="chart-wrap" id="wrap-ret"><canvas id="ch-ret"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ─── Helpers ────────────────────────────────────────── */
+const fmt = n => {
+  if (n == null) return '—';
+  const s = Math.abs(n) >= 1000
+    ? Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
+    : Number.isInteger(n) ? n.toString() : n.toFixed(1);
+  return n < 0 ? '−' + s.replace('-','') : s;
+};
+const fmtRub = n => fmt(n) + ' ₽';
+const fmtPct = n => fmt(n) + '%';
+const shortDate = d => {
+  if (!d) return '';
+  const [,m,day] = d.split('-');
+  return `${+day}.${+m}`;
+};
+
+const empty = (wrapId) => {
+  const w = document.getElementById(wrapId);
+  if (w) { w.querySelector('canvas')?.remove(); w.innerHTML = '<div class="empty">Нет данных</div>'; }
+};
+
+/* ─── Chart.js defaults ──────────────────────────────── */
+Chart.defaults.color = '#70707a';
+Chart.defaults.font.family = "'Inter',system-ui,sans-serif";
+Chart.defaults.font.size = 11;
+Chart.defaults.plugins.legend.display = false;
+Chart.defaults.plugins.tooltip.backgroundColor = '#1e1e22';
+Chart.defaults.plugins.tooltip.borderColor = '#2a2a2f';
+Chart.defaults.plugins.tooltip.borderWidth = 1;
+Chart.defaults.plugins.tooltip.titleFont = { family: "'Inter'", size: 12, weight: 600 };
+Chart.defaults.plugins.tooltip.bodyFont = { family: "'JetBrains Mono'", size: 12 };
+Chart.defaults.plugins.tooltip.padding = 10;
+Chart.defaults.plugins.tooltip.cornerRadius = 6;
+Chart.defaults.plugins.tooltip.displayColors = false;
+Chart.defaults.elements.point.radius = 0;
+Chart.defaults.elements.point.hoverRadius = 4;
+Chart.defaults.elements.line.borderWidth = 2;
+Chart.defaults.elements.bar.borderRadius = 4;
+
+const noGrid = { grid: { display: false }, border: { display: false } };
+const noGridY = { ...noGrid, ticks: { display: false } };
+
+/* ─── Render functions ───────────────────────────────── */
+function renderCards(s) {
+  document.getElementById('c-users').textContent = fmt(s.total_users);
+  document.getElementById('c-users-sub').textContent = `платящих: ${s.paying_users}`;
+  document.getElementById('c-revenue').textContent = fmtRub(s.total_revenue);
+  document.getElementById('c-revenue-sub').textContent = `ARPU: ${fmtRub(s.arpu)}`;
+  document.getElementById('c-profit').textContent = fmtRub(s.total_profit);
+  document.getElementById('c-profit-sub').textContent = `расходы: ${fmtRub(s.total_cost)}`;
+  document.getElementById('c-conversion').textContent = fmtPct(s.conversion_rate);
+  document.getElementById('c-conversion-sub').textContent = `${s.paying_users} из ${s.total_users}`;
+
+  // Profit color
+  const profitCard = document.getElementById('c-profit-card');
+  if (s.total_profit < 0) {
+    profitCard.classList.remove('card--green');
+    profitCard.classList.add('card--orange');
+  }
+}
+
+function renderUsersChart(d) {
+  if (!d.labels?.length) { empty('wrap-users'); return; }
+  document.getElementById('badge-users').textContent = `всего: ${fmt(d.cumulative[d.cumulative.length-1])}`;
+  new Chart(document.getElementById('ch-users'), {
+    type: 'line',
+    data: {
+      labels: d.labels.map(shortDate),
+      datasets: [{
+        data: d.cumulative,
+        borderColor: '#3b82f6',
+        backgroundColor: 'rgba(59,130,246,.08)',
+        fill: true,
+        tension: .3,
+        pointHoverBackgroundColor: '#3b82f6',
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: { x: noGrid, y: { ...noGrid, beginAtZero: true, ticks: { callback: v => fmt(v) } } },
+      plugins: { tooltip: { callbacks: { label: c => fmt(c.raw) + ' пользователей' } } }
+    }
+  });
+}
+
+function renderRevenueChart(d) {
+  if (!d.labels?.length) { empty('wrap-revenue'); return; }
+  document.getElementById('badge-revenue').textContent = `всего: ${fmtRub(d.cumulative_revenue[d.cumulative_revenue.length-1])}`;
+  new Chart(document.getElementById('ch-revenue'), {
+    type: 'line',
+    data: {
+      labels: d.labels.map(shortDate),
+      datasets: [{
+        data: d.cumulative_revenue,
+        borderColor: '#3ecf8e',
+        backgroundColor: 'rgba(62,207,142,.08)',
+        fill: true,
+        tension: .3,
+        pointHoverBackgroundColor: '#3ecf8e',
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: { x: noGrid, y: { ...noGrid, beginAtZero: true, ticks: { callback: v => fmt(v) + ' ₽' } } },
+      plugins: { tooltip: { callbacks: { label: c => fmtRub(c.raw) } } }
+    }
+  });
+}
+
+function renderGensChart(d) {
+  if (!d.labels?.length) { empty('wrap-gens'); document.getElementById('badge-gens').textContent = 'нет данных'; return; }
+  const total = d.counts.reduce((a,b) => a+b, 0);
+  document.getElementById('badge-gens').textContent = `всего: ${fmt(total)}`;
+  new Chart(document.getElementById('ch-gens'), {
+    type: 'bar',
+    data: {
+      labels: d.labels.map(shortDate),
+      datasets: [{
+        data: d.counts,
+        backgroundColor: 'rgba(59,130,246,.5)',
+        hoverBackgroundColor: '#3b82f6',
+        borderRadius: 3,
+        barPercentage: .7,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: { x: noGrid, y: { ...noGrid, beginAtZero: true } },
+      plugins: { tooltip: { callbacks: { label: c => fmt(c.raw) + ' генераций' } } }
+    }
+  });
+}
+
+function renderPLChart(s) {
+  document.getElementById('badge-pl').textContent = `маржа: ${s.total_revenue > 0 ? Math.round((s.total_profit / s.total_revenue) * 100) : 0}%`;
+  new Chart(document.getElementById('ch-pl'), {
+    type: 'bar',
+    data: {
+      labels: ['Выручка', 'Расходы', 'Прибыль'],
+      datasets: [{
+        data: [s.total_revenue, s.total_cost, s.total_profit],
+        backgroundColor: [
+          'rgba(62,207,142,.6)',
+          'rgba(245,158,11,.6)',
+          s.total_profit >= 0 ? 'rgba(62,207,142,.6)' : 'rgba(239,68,68,.6)',
+        ],
+        hoverBackgroundColor: [
+          '#3ecf8e',
+          '#f59e0b',
+          s.total_profit >= 0 ? '#3ecf8e' : '#ef4444',
+        ],
+        borderRadius: 4,
+        barPercentage: .5,
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true, maintainAspectRatio: false,
+      scales: { x: { ...noGrid, ticks: { callback: v => fmt(v) + ' ₽' } }, y: noGrid },
+      plugins: { tooltip: { callbacks: { label: c => fmtRub(c.raw) } } }
+    }
+  });
+}
+
+function renderPackagesChart(d) {
+  if (!d?.length) { empty('wrap-pkg'); return; }
+  document.getElementById('badge-pkg').textContent = `${d.reduce((a,p) => a+p.count, 0)} покупок`;
+  const colors = ['rgba(62,207,142,.6)', 'rgba(59,130,246,.6)', 'rgba(139,92,246,.6)'];
+  const hovers = ['#3ecf8e', '#3b82f6', '#8b5cf6'];
+  new Chart(document.getElementById('ch-pkg'), {
+    type: 'bar',
+    data: {
+      labels: d.map(p => p.label),
+      datasets: [{
+        data: d.map(p => p.count),
+        backgroundColor: d.map((_, i) => colors[i % colors.length]),
+        hoverBackgroundColor: d.map((_, i) => hovers[i % hovers.length]),
+        borderRadius: 4,
+        barPercentage: .5,
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true, maintainAspectRatio: false,
+      scales: { x: { ...noGrid, beginAtZero: true }, y: noGrid },
+      plugins: { tooltip: { callbacks: {
+        label: c => `${c.raw} покупок — ${fmtRub(d[c.dataIndex].revenue)}`
+      } } }
+    }
+  });
+}
+
+function renderSourcesChart(d) {
+  if (!d?.length) { empty('wrap-src'); return; }
+  const total = d.reduce((a,s) => a+s.count, 0);
+  document.getElementById('badge-src').textContent = `всего: ${fmt(total)}`;
+  new Chart(document.getElementById('ch-src'), {
+    type: 'bar',
+    data: {
+      labels: d.map(s => s.source),
+      datasets: [{
+        data: d.map(s => s.count),
+        backgroundColor: 'rgba(139,92,246,.5)',
+        hoverBackgroundColor: '#8b5cf6',
+        borderRadius: 4,
+        barPercentage: .5,
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true, maintainAspectRatio: false,
+      scales: { x: { ...noGrid, beginAtZero: true }, y: noGrid },
+      plugins: { tooltip: { callbacks: {
+        label: c => `${c.raw} пользователей (${Math.round(c.raw / total * 100)}%)`
+      } } }
+    }
+  });
+}
+
+function renderStyleChart(d) {
+  if (!d?.length) { empty('wrap-style'); return; }
+  const total = d.reduce((a,s) => a+s.count, 0);
+  document.getElementById('badge-style').textContent = `${fmt(total)} генераций`;
+  const palette = ['#3ecf8e', '#3b82f6', '#8b5cf6', '#f59e0b'];
+  new Chart(document.getElementById('ch-style'), {
+    type: 'doughnut',
+    data: {
+      labels: d.map(s => s.label),
+      datasets: [{
+        data: d.map(s => s.count),
+        backgroundColor: d.map((_, i) => palette[i % palette.length]),
+        borderColor: '#1e1e22',
+        borderWidth: 3,
+        hoverOffset: 6,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      cutout: '68%',
+      plugins: {
+        legend: { display: true, position: 'right', labels: { padding: 16, usePointStyle: true, pointStyle: 'circle', font: { size: 12 } } },
+        tooltip: { callbacks: {
+          label: c => `${c.label}: ${c.raw} (${Math.round(c.raw / total * 100)}%)`
+        } }
+      }
+    }
+  });
+}
+
+function renderRetentionChart(d) {
+  if (!d.eligible_d1 && !d.eligible_d7 && !d.eligible_d30) { empty('wrap-ret'); document.getElementById('badge-ret').textContent = 'нет данных'; return; }
+  document.getElementById('badge-ret').textContent = `D1: ${fmtPct(d.d1)}`;
+  new Chart(document.getElementById('ch-ret'), {
+    type: 'bar',
+    data: {
+      labels: [
+        `D1 (n=${d.eligible_d1})`,
+        `D7 (n=${d.eligible_d7})`,
+        `D30 (n=${d.eligible_d30})`
+      ],
+      datasets: [{
+        data: [d.d1, d.d7, d.d30],
+        backgroundColor: ['rgba(59,130,246,.5)', 'rgba(139,92,246,.5)', 'rgba(62,207,142,.5)'],
+        hoverBackgroundColor: ['#3b82f6', '#8b5cf6', '#3ecf8e'],
+        borderRadius: 4,
+        barPercentage: .4,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        x: noGrid,
+        y: { ...noGrid, beginAtZero: true, max: 100, ticks: { callback: v => v + '%' } }
+      },
+      plugins: { tooltip: { callbacks: { label: c => fmtPct(c.raw) } } }
+    }
+  });
+}
+
+/* ─── Init ───────────────────────────────────────────── */
+fetch('data.json?t=' + Date.now())
+  .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+  .then(data => {
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+
+    // Updated timestamp
+    const dt = new Date(data.generated_at);
+    document.getElementById('updated').textContent =
+      'обновлено: ' + dt.toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+    renderCards(data.summary);
+    renderUsersChart(data.users_over_time);
+    renderRevenueChart(data.revenue_over_time);
+    renderGensChart(data.daily_generations);
+    renderPLChart(data.summary);
+    renderPackagesChart(data.package_popularity);
+    renderSourcesChart(data.traffic_sources);
+    renderStyleChart(data.style_popularity);
+    renderRetentionChart(data.retention);
+  })
+  .catch(err => {
+    document.getElementById('loading').innerHTML =
+      `<div class="error"><div class="error-icon">!</div><div class="error-text">Не удалось загрузить данные</div><div class="error-text" style="opacity:.5">${err.message}</div></div>`;
+  });
+</script>
+</body>
+</html>
