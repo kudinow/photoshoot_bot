@@ -16,6 +16,7 @@ from bot.keyboards.inline import (
 from bot.services.user_limits import (
     ADMIN_ID,
     get_last_generation_context,
+    has_user_rated,
     mark_as_rated,
 )
 from bot.states.generation import GenerationStates
@@ -90,10 +91,16 @@ async def _send_rating_to_admin_stage1(
         except Exception as e:
             logger.error(f"Failed to send original photo to admin: {e}")
             # Фолбэк: хотя бы текстовое сообщение с оценкой
-            await bot.send_message(ADMIN_ID, caption)
+            try:
+                await bot.send_message(ADMIN_ID, caption)
+            except Exception as e2:
+                logger.error(f"Fallback send_message to admin also failed: {e2}")
     else:
         # Нет file_id — отправляем только текст
-        await bot.send_message(ADMIN_ID, caption)
+        try:
+            await bot.send_message(ADMIN_ID, caption)
+        except Exception as e:
+            logger.error(f"Failed to send text notification to admin: {e}")
 
     # Сообщение 2: сгенерированный результат (по URL)
     if ctx["result_url"]:
@@ -137,6 +144,13 @@ async def handle_rating(
 
     if not 1 <= rating <= 5:
         logger.warning(f"Rating out of range: {rating}")
+        return
+
+    # Race guard: если юзер уже оценивал (например, быстро кликнул по двум
+    # звёздам подряд), не обрабатываем второй клик — иначе админу прилетит
+    # дублирующееся уведомление.
+    if has_user_rated(user_id):
+        logger.info(f"User {user_id} already rated, ignoring extra click")
         return
 
     # Помечаем юзера как оценившего (один раз в жизни)
