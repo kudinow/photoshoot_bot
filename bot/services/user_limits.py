@@ -444,10 +444,12 @@ def has_user_rated(user_id: int) -> bool:
 def get_last_generation_context(
     user_id: int,
 ) -> dict | None:
-    """Возвращает контекст последней генерации для отправки админу.
+    """Возвращает контекст последней генерации пользователя.
 
-    Returns dict with keys: photo_file_id, result_url, gender, style.
-    Returns None if user not found or no generation data.
+    Returns a dict with keys `photo_file_id`, `result_url`, `gender`,
+    `style` (any of which may be None if the user has no saved
+    generation data yet). Returns None only if the user row does
+    not exist.
     """
     with _get_conn() as conn:
         row = conn.execute(
