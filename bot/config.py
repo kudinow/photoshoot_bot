@@ -102,12 +102,22 @@ Background: Seamless neutral backdrop or softly blurred studio environment
 Color: See style-specific palette below — follow it strictly
 
 Technical Photography Setup
-[keywords: studio lighting, bokeh, sharp focus, professional grade]
-Camera: Professional DSLR/mirrorless aesthetic, shallow depth of field (f/2.8–f/4)
-Lighting: Three-point lighting or soft box setup, even illumination on face
-Focus: Sharp on eyes, slight background blur for professional separation
+[keywords: studio lighting, bokeh, sharp focus, professional grade, DSLR, RAW photo]
+Camera: Professional DSLR/mirrorless aesthetic (Canon EOS R5 / Sony A7IV look), shallow depth of field (f/2.8–f/4), 85mm or 105mm portrait lens
+Lighting: Three-point lighting or soft box setup, even illumination on face, natural light falloff and soft shadow penumbra
+Focus: Tack sharp on eyes, natural depth of field gradient, slight background blur for professional separation
 Composition: Rule of thirds or centered, breathing room above head
-Post-processing: Natural skin tones, subtle enhancement, professional color grading in nude palette"""
+Post-processing: Natural skin tones, subtle enhancement, professional color grading in nude palette
+
+PHOTOREALISM REQUIREMENTS (CRITICAL — follow strictly):
+The output MUST be indistinguishable from an actual photograph taken with a professional camera. This is NOT an illustration, painting, or CGI render.
+Skin: visible pores, natural skin texture, subtle micro-imperfections (tiny moles, fine lines, natural redness zones near nose and cheeks), realistic subsurface scattering from studio lights, NO plastic/waxy/airbrushed appearance
+Hair: individual strands visible at edges, natural flyaways and baby hairs, realistic volume and shine with proper specular highlights, natural hair texture
+Eyes: detailed iris texture, realistic wet specular catchlights from studio lights, natural eyelash separation, subtle under-eye texture
+Fabric: realistic wrinkles and creases from natural body position, visible weave/knit texture, proper light absorption and reflection based on material type, natural draping with gravity
+Lighting on skin: realistic specular highlights on forehead/nose/cheekbones, soft shadow transitions, visible ambient occlusion in skin folds, natural color temperature
+Overall photo feel: very subtle sensor noise/grain (ISO 100-400 level), natural lens vignetting, realistic color science, micro-contrast typical of professional glass
+AVOID at all costs: plastic or silicone skin, unnaturally smooth textures, CGI or 3D-render look, oversaturated colors, perfectly symmetrical features, painting-like brushstrokes, flat uniform lighting on skin"""
 
 # ---- CASUAL ----
 
@@ -480,4 +490,7 @@ def build_system_prompt(gender: str, style: str) -> str:
 
 PROMPT_CRITICAL_SUFFIX = """CRITICAL FACE AND APPEARANCE PRESERVATION REQUIREMENTS:
 Preserve the exact facial features, face shape, skin tone, eye color, hair color, hairstyle, and all unique characteristics from the original photo. Do not alter, enhance, beautify, or modify the face in any way. Never change eye color or hair color under any circumstances. Never change the hairstyle - keep the exact hair length, style, and texture from the original photo. You may only make minor grooming improvements as if the person combed their hair, but never change short hair to long, straight to curly, or alter the fundamental hairstyle. If a man has short hair, keep it short. If a woman has long hair, keep it long. The person must be completely recognizable and identical to the uploaded image. Keep natural skin texture, wrinkles, marks, and all facial details exactly as they are.
-Never add glasses or any facial accessories if they are not present in the original photo. For women, earrings may be added as the only acceptable facial accessory. For men, no facial accessories should be added at all if not present in the original."""
+Never add glasses or any facial accessories if they are not present in the original photo. For women, earrings may be added as the only acceptable facial accessory. For men, no facial accessories should be added at all if not present in the original.
+
+PHOTOREALISM IS MANDATORY:
+The final image must look like a real photograph from a professional studio photoshoot, NOT an AI-generated or digitally painted image. Maintain all natural skin imperfections — pores, fine lines, subtle blemishes, natural skin redness. Skin must have realistic subsurface scattering and specular highlights, never appear plastic, waxy, or airbrushed. Hair must show individual strands, natural flyaways, and realistic shine. Clothing fabric must have natural wrinkles, creases, and realistic texture. The overall image must have the quality and feel of a RAW photo processed in Lightroom — natural color science, subtle grain, realistic micro-contrast. Absolutely no CGI, 3D render, illustration, or digitally painted appearance."""
