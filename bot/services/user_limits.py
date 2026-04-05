@@ -386,15 +386,21 @@ def add_paid_credits(user_id: int, credits: int) -> None:
 
 
 def save_last_photo(
-    user_id: int, photo_url: str, gender: str, style: str = "casual"
+    user_id: int,
+    photo_url: str,
+    gender: str,
+    style: str = "casual",
+    photo_file_id: str | None = None,
+    result_url: str | None = None,
 ) -> None:
-    """Сохраняет последнюю фотографию пользователя"""
+    """Сохраняет последнюю фотографию пользователя (URL, file_id, результат)."""
     with _get_conn() as conn:
         _ensure_user(conn, user_id)
         conn.execute(
             "UPDATE users SET last_photo_url = ?, last_gender = ?, "
-            "last_style = ? WHERE user_id = ?",
-            (photo_url, gender, style, user_id),
+            "last_style = ?, last_photo_file_id = ?, last_result_url = ? "
+            "WHERE user_id = ?",
+            (photo_url, gender, style, photo_file_id, result_url, user_id),
         )
     logger.info(f"Saved last photo for user {user_id}")
 
@@ -412,6 +418,51 @@ def get_last_photo(
     if row:
         return row[0], row[1], row[2]
     return None, None, None
+
+
+def mark_as_rated(user_id: int) -> None:
+    """Помечает пользователя как уже оценившего генерацию (один раз в жизни)."""
+    with _get_conn() as conn:
+        _ensure_user(conn, user_id)
+        conn.execute(
+            "UPDATE users SET has_rated = 1 WHERE user_id = ?",
+            (user_id,),
+        )
+    logger.info(f"User {user_id} marked as rated")
+
+
+def has_user_rated(user_id: int) -> bool:
+    """Возвращает True, если пользователь уже оценивал генерацию."""
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT has_rated FROM users WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+    return bool(row and row[0])
+
+
+def get_last_generation_context(
+    user_id: int,
+) -> dict | None:
+    """Возвращает контекст последней генерации для отправки админу.
+
+    Returns dict with keys: photo_file_id, result_url, gender, style.
+    Returns None if user not found or no generation data.
+    """
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT last_photo_file_id, last_result_url, last_gender, last_style "
+            "FROM users WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+    if not row:
+        return None
+    return {
+        "photo_file_id": row[0],
+        "result_url": row[1],
+        "gender": row[2],
+        "style": row[3],
+    }
 
 
 # --- Платежи ---
