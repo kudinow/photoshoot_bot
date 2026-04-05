@@ -157,3 +157,49 @@ def get_broadcast_confirm_keyboard() -> InlineKeyboardMarkup:
             )],
         ]
     )
+
+
+def get_rating_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура оценки генерации (5 звёзд в один ряд)"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="⭐", callback_data="rate:1"),
+                InlineKeyboardButton(text="⭐", callback_data="rate:2"),
+                InlineKeyboardButton(text="⭐", callback_data="rate:3"),
+                InlineKeyboardButton(text="⭐", callback_data="rate:4"),
+                InlineKeyboardButton(text="⭐", callback_data="rate:5"),
+            ]
+        ]
+    )
+
+
+def get_feedback_skip_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура с кнопкой 'Пропустить' для пропуска текстового фидбека"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Пропустить",
+                    callback_data="feedback_skip",
+                )
+            ]
+        ]
+    )
+
+
+def get_five_star_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура после оценки 5 звёзд — предложение поделиться реферальной ссылкой.
+
+    Переиспользует существующий callback 'referral_link' (см. bot/handlers/start.py).
+    """
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🎁 Получить реферальную ссылку",
+                    callback_data="referral_link",
+                )
+            ]
+        ]
+    )
