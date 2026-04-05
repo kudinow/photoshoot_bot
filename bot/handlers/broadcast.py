@@ -7,7 +7,7 @@ import logging
 
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
-from aiogram.filters import Command
+from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
@@ -30,6 +30,48 @@ router = Router()
 
 _BROADCAST_BATCH_SIZE = 25
 _BROADCAST_BATCH_DELAY = 1.0
+
+
+# --- Команда /send <user_id> <текст> ---
+
+
+@router.message(Command("send"))
+async def cmd_send(
+    message: Message, command: CommandObject, bot: Bot,
+) -> None:
+    """Отправляет сообщение конкретному пользователю по ID"""
+    if not is_admin(message.from_user.id):
+        return
+
+    if not command.args:
+        await message.answer(
+            "Формат: <code>/send USER_ID текст сообщения</code>",
+        )
+        return
+
+    parts = command.args.split(maxsplit=1)
+    if len(parts) < 2:
+        await message.answer(
+            "Формат: <code>/send USER_ID текст сообщения</code>",
+        )
+        return
+
+    try:
+        user_id = int(parts[0])
+    except ValueError:
+        await message.answer("Неверный user_id — должно быть число.")
+        return
+
+    text = parts[1]
+    try:
+        await bot.send_message(user_id, text)
+        await message.answer(f"Сообщение отправлено пользователю {user_id}.")
+    except TelegramForbiddenError:
+        await message.answer(f"Пользователь {user_id} заблокировал бота.")
+    except TelegramBadRequest as e:
+        await message.answer(f"Ошибка: {e.message}")
+    except Exception as e:
+        await message.answer(f"Не удалось отправить: {e}")
 
 
 # --- Команда /broadcast ---
