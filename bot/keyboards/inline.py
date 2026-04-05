@@ -160,15 +160,15 @@ def get_broadcast_confirm_keyboard() -> InlineKeyboardMarkup:
 
 
 def get_rating_keyboard() -> InlineKeyboardMarkup:
-    """Клавиатура оценки генерации (5 звёзд в один ряд)"""
+    """Клавиатура оценки генерации (5 пронумерованных звёзд в один ряд)"""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="⭐", callback_data="rate:1"),
-                InlineKeyboardButton(text="⭐", callback_data="rate:2"),
-                InlineKeyboardButton(text="⭐", callback_data="rate:3"),
-                InlineKeyboardButton(text="⭐", callback_data="rate:4"),
-                InlineKeyboardButton(text="⭐", callback_data="rate:5"),
+                InlineKeyboardButton(text="1⭐", callback_data="rate:1"),
+                InlineKeyboardButton(text="2⭐", callback_data="rate:2"),
+                InlineKeyboardButton(text="3⭐", callback_data="rate:3"),
+                InlineKeyboardButton(text="4⭐", callback_data="rate:4"),
+                InlineKeyboardButton(text="5⭐", callback_data="rate:5"),
             ]
         ]
     )

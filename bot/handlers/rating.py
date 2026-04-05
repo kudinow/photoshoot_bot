@@ -42,7 +42,7 @@ async def send_rating_request(bot: Bot, chat_id: int) -> None:
     try:
         await bot.send_message(
             chat_id,
-            "Как тебе результат?",
+            "Как тебе результат? Оцени от 1 до 5:",
             reply_markup=get_rating_keyboard(),
         )
     except Exception as e:
@@ -205,7 +205,7 @@ async def handle_feedback_text(
         return
 
     await _send_feedback_text_to_admin(bot, user_id, feedback)
-    await message.answer("Спасибо за фидбек! Мы это учтём.")
+    await message.answer("Спасибо за фидбек! Мы учтем его в следующем апдейте")
     await state.clear()
 
 
