@@ -31,6 +31,7 @@ No test suite, linter, or build step exists. Dependencies: `pip install -r requi
 3. User picks style → FSM moves to `awaiting_photo` state
 4. User sends photo → handler calls OpenRouter (GPT-5.2) to generate a style-aware prompt, then calls kie.ai API to transform the image (~28s total)
 5. Result photo sent back with "Regenerate" and "New photo" buttons
+6. **After the user's first successful generation only**, bot sends a rating prompt (1-5 stars). High rating (5) surfaces the referral link; low rating (1-4) forwards both photos + feedback to admin. One-shot per user, gated by `users.has_rated` flag.
 
 **Key modules:**
 
@@ -41,16 +42,26 @@ No test suite, linter, or build step exists. Dependencies: `pip install -r requi
 | `bot/handlers/start.py` | `/start` command, gender selection, style selection, regenerate callbacks |
 | `bot/handlers/photo.py` | Photo upload handler, orchestrates prompt generation → image transformation → response |
 | `bot/handlers/payment.py` | Payment flow: package selection, YooKassa payment creation, status polling |
+| `bot/handlers/rating.py` | Generation rating flow: star-click callbacks, low-rating admin forwarding (two-stage: photos + optional text), 5-star referral link surfacing, non-text catch-all in feedback state |
+| `bot/handlers/broadcast.py` | Admin broadcasting: `/broadcast` segmented mass messages + `/send USER_ID text` for direct per-user messages |
 | `bot/services/yookassa_client.py` | Async wrapper over YooKassa SDK (payment creation + status check via `run_in_executor`) |
 | `bot/services/openai_client.py` | `OpenAIClient` — async prompt generation via OpenRouter (GPT-5.2) |
 | `bot/services/kie_client.py` | `KieClient` — async image transformation via kie.ai (google/nano-banana-edit), with polling and exponential backoff |
-| `bot/services/user_limits.py` | SQLite-based user limit tracking (1 free generation + paid credits, admin bypass), payment history, referral stats, `init_db()` called at startup |
-| `bot/states/generation.py` | `GenerationStates` FSM: `selecting_gender` → `selecting_style` → `awaiting_photo` → `processing` |
-| `bot/keyboards/inline.py` | Inline keyboard builders: gender selection, style selection, restart, regenerate, buy credits, package selection buttons |
+| `bot/services/user_limits.py` | SQLite-based user limit tracking (1 free generation + paid credits, admin bypass), payment history, deep-link referral stats, user-to-user referral program, rating helpers, `init_db()` called at startup |
+| `bot/states/generation.py` | `GenerationStates` FSM: `selecting_gender` → `selecting_style` → `awaiting_photo` → `processing`; plus `awaiting_feedback_text` used by the rating flow |
+| `bot/keyboards/inline.py` | Inline keyboard builders: gender/style selection, restart/regenerate, buy credits + package selection, rating stars (numbered `1⭐..5⭐`), feedback skip, five-star referral CTA |
 
 **Service clients are module-level singletons** (`kie_client = KieClient()`, `openai_client = OpenAIClient()`), imported directly by handlers.
 
-**Data persistence:** SQLite database at `/opt/photoshoot_ai/user_data.db` (production) or project root (local dev). Tables: `users(user_id, generations, last_photo_url, last_gender, last_style, paid_credits, created_at)`, `payments(id, user_id, package_id, credits, amount, status, created_at, confirmed_at, payment_provider_id)`, `referrals(user_id, source, joined_at)`, and `generations_log(id, user_id, created_at, gender, style, is_paid)`. On first run, `init_db()` auto-migrates schema (adds columns, creates tables) and migrates legacy JSON data.
+**Data persistence:** SQLite database at `/opt/photoshoot_ai/user_data.db` (production) or project root (local dev). Tables:
+- `users(user_id, generations, last_photo_url, last_gender, last_style, paid_credits, created_at, last_photo_file_id, last_result_url, has_rated)` — `last_photo_file_id` stores Telegram file_id of the original selfie (needed for admin rating notifications; file_id is permanent, unlike the temporary file URL in `last_photo_url`); `last_result_url` stores the kie.ai result URL from the most recent generation; `has_rated` is a one-shot flag set when the user rates any generation
+- `payments(id, user_id, package_id, credits, amount, status, created_at, confirmed_at, payment_provider_id)`
+- `referrals(user_id, source, joined_at)` — deep-link traffic source tracking (vk, instagram, ref_<id>, etc.)
+- `user_referrals(referred_user_id, referrer_user_id, created_at, rewarded, rewarded_at)` — user-to-user referral relationships
+- `generations_log(id, user_id, created_at, gender, style, is_paid)`
+- `broadcasts(id, segment, message_text, total_recipients, sent, blocked, failed, started_at, finished_at)`
+
+On first run, `init_db()` auto-migrates schema (adds columns via idempotent `ALTER TABLE ... ADD COLUMN` wrapped in try/except, creates tables) and migrates legacy JSON data.
 
 ## Environment Variables
 
@@ -105,6 +116,41 @@ Deep links allow tracking traffic sources via `/start SOURCE` parameter.
 ```
 
 **Relevant code:** `save_referral()` and `get_referral_stats()` in `bot/services/user_limits.py`; `/stats` handler in `bot/handlers/start.py`.
+
+## User-to-User Referral Program
+
+Separate from deep-link traffic tracking: each user has a personal invite link and earns credits when invited friends generate their first photo.
+
+**Link format:** `https://t.me/photoshoot_generator_bot?start=ref_<user_id>` (built by `get_referral_link()` in `user_limits.py`).
+
+**Flow:**
+1. User clicks "🎁 Пригласить друга" (shown in `get_buy_keyboard` when out of credits, and after a 5-star rating via `get_five_star_keyboard`) → `show_referral_link` callback in `start.py` sends the link and usage info.
+2. Friend opens `/start ref_<referrer_id>` → if the friend is a **new** user, `save_user_referral()` records the pair in `user_referrals`.
+3. Friend completes their first successful generation → `reward_referrer()` runs in `photo.py` (and symmetrically in `start.py` regenerate branch), adds **+1 paid credit** to the referrer, marks `rewarded=1`, and sends the referrer a notification message.
+
+**Caps and protections:** `MAX_REFERRAL_CREDITS = 5` per referrer (const in `user_limits.py`). Self-referral blocked. Duplicate rewards blocked via `rewarded` flag. Only new users count (prevents existing users from abusing ref links).
+
+**Key functions:** `save_user_referral()`, `reward_referrer()`, `get_referral_credits_earned()`, `get_referral_link()` in `bot/services/user_limits.py`.
+
+**Backlog (not implemented):** referral CTAs after payment, `/invite` command, two-sided bonus (reward the invitee too), removing the `new_user` gate — see git history and implementation plan docs if revisiting.
+
+## Generation Rating
+
+After the user's first successful generation (and only then), the bot asks them to rate the result 1-5 stars. One-shot per user — gated by `users.has_rated`.
+
+**Flow:**
+1. `photo.py` (and `start.py` regenerate branch for symmetry) calls `send_rating_request()` after saving the result, if `was_first_generation and not has_user_rated(user_id)`.
+2. User sees message "Как тебе результат? Оцени от 1 до 5:" with keyboard `1⭐ 2⭐ 3⭐ 4⭐ 5⭐`.
+3. `handle_rating` callback in `rating.py` parses the star number, calls `mark_as_rated(user_id)` (race-guard: returns early if already rated), and branches:
+   - **5 stars:** edits message to thanks + `get_five_star_keyboard` (single button reusing existing `referral_link` callback). No admin notification.
+   - **1-4 stars:** immediately forwards two messages to `ADMIN_ID` (original photo via `last_photo_file_id`, result via `last_result_url`) with caption containing rating/user info/gender/style. Edits user's message to feedback prompt + skip button, transitions FSM to `awaiting_feedback_text`.
+4. User writes text feedback → `handle_feedback_text` forwards it as a stage-2 admin message, clears state. User presses Skip → `handle_feedback_skip` clears state, no extra admin message. User sends non-text (photo/sticker) → catch-all handler nudges them to text or Skip without losing state.
+
+**Admin self-exclusion:** if `user_id == ADMIN_ID`, admin notifications are suppressed to avoid self-spam.
+
+**Data:** no rating history is stored — only the `has_rated` one-shot flag. Feedback is ephemeral (Telegram messages to admin only). If analytics over ratings is ever needed, a new table would have to be added.
+
+**Design docs:** [docs/superpowers/specs/2026-04-05-generation-rating-design.md](docs/superpowers/specs/2026-04-05-generation-rating-design.md) and [docs/superpowers/plans/2026-04-05-generation-rating.md](docs/superpowers/plans/2026-04-05-generation-rating.md).
 
 ## Landing Page
 
