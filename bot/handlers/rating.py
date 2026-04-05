@@ -1,5 +1,7 @@
 """Хендлеры флоу оценки генераций (звёзды + текстовый фидбек)."""
 
+from __future__ import annotations
+
 import logging
 
 from aiogram import Bot, F, Router
