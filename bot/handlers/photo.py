@@ -4,6 +4,7 @@ from aiogram import Bot, F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import BufferedInputFile, Message
 
+from bot.handlers.rating import send_rating_request
 from bot.keyboards.inline import get_buy_keyboard, get_restart_keyboard
 from bot.services.kie_client import KieClientError, kie_client
 from bot.services.openai_client import OpenAIClientError, openai_client
@@ -12,6 +13,7 @@ from bot.services.user_limits import (
     get_generations_count,
     get_remaining_generations,
     has_free_generations,
+    has_user_rated,
     increment_generations,
     log_generation,
     reward_referrer,
@@ -126,8 +128,15 @@ async def handle_photo(
                         f"Failed to notify referrer {referrer_id}: {e}"
                     )
 
-        # Сохраняем URL фото, пол и стиль для возможности регенерации
-        save_last_photo(user_id, file_url, gender, style)
+        # Сохраняем URL фото, file_id оригинала, пол, стиль и URL результата
+        save_last_photo(
+            user_id,
+            file_url,
+            gender,
+            style,
+            photo_file_id=photo.file_id,
+            result_url=result_url,
+        )
 
         # Формируем caption с информацией об оставшихся генерациях
         remaining_after = get_remaining_generations(user_id)
@@ -160,6 +169,10 @@ async def handle_photo(
         logger.info(
             f"Successfully generated photo for user {user_id}"
         )
+
+        # После первой успешной генерации — запросить оценку (один раз в жизни)
+        if was_first_generation and not has_user_rated(user_id):
+            await send_rating_request(bot, message.chat.id)
 
     except OpenAIClientError as e:
         logger.error(
