@@ -9,10 +9,12 @@ from bot.services.kie_client import KieClientError, kie_client
 from bot.services.openai_client import OpenAIClientError, openai_client
 from bot.services.user_limits import (
     can_generate,
+    get_generations_count,
     get_remaining_generations,
     has_free_generations,
     increment_generations,
     log_generation,
+    reward_referrer,
     save_last_photo,
 )
 from bot.states.generation import GenerationStates
@@ -33,7 +35,8 @@ async def handle_photo(
     if not can_generate(user_id):
         await message.answer(
             "К сожалению, все генерации использованы 😔\n\n"
-            "Купи пакет генераций, чтобы продолжить!",
+            "Пригласи друга — получи бесплатную генерацию!\n"
+            "Или купи пакет генераций 👇",
             reply_markup=get_buy_keyboard(),
         )
         await state.clear()
@@ -102,9 +105,26 @@ async def handle_photo(
         await processing_msg.delete()
 
         # Увеличиваем счётчик генераций
+        was_first_generation = get_generations_count(user_id) == 0
         is_paid = not has_free_generations(user_id)
         increment_generations(user_id)
         log_generation(user_id, gender, style, is_paid)
+
+        # Реферальная награда: если это первая генерация пользователя
+        if was_first_generation:
+            referrer_id = reward_referrer(user_id)
+            if referrer_id:
+                try:
+                    await bot.send_message(
+                        referrer_id,
+                        "🎉 Твой друг сделал первое фото!\n"
+                        "Тебе начислена <b>1 бесплатная генерация</b>.",
+                        parse_mode="HTML",
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Failed to notify referrer {referrer_id}: {e}"
+                    )
 
         # Сохраняем URL фото, пол и стиль для возможности регенерации
         save_last_photo(user_id, file_url, gender, style)

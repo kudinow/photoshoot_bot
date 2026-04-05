@@ -51,9 +51,10 @@ def get_restart_keyboard(
 
 
 def get_buy_keyboard() -> InlineKeyboardMarkup:
-    """Клавиатура с кнопкой покупки (когда лимит исчерпан)"""
+    """Клавиатура с кнопкой покупки и реферальной ссылкой (когда лимит исчерпан)"""
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text="🎁 Пригласить друга", callback_data="referral_link")],
             [InlineKeyboardButton(text="💳 Купить генерации", callback_data="buy_credits")],
             [InlineKeyboardButton(text="✨ Создать с новым фото", callback_data="restart")],
         ]

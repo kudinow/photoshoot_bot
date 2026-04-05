@@ -15,14 +15,18 @@ from bot.keyboards.inline import (
 )
 from bot.services.user_limits import (
     ADMIN_ID,
+    MAX_REFERRAL_CREDITS,
     can_generate,
     get_last_photo,
     get_paid_credits,
+    get_referral_credits_earned,
+    get_referral_link,
     get_referral_stats,
     get_remaining_generations,
     is_admin,
     is_new_user,
     save_referral,
+    save_user_referral,
 )
 from bot.states.generation import GenerationStates
 
@@ -44,6 +48,14 @@ async def cmd_start(message: Message, state: FSMContext, command: CommandObject)
     if source:
         save_referral(user_id, source)
         logger.info(f"User {user_id} came from: {source}")
+
+        # Реферальная ссылка: ref_<user_id>
+        if source.startswith("ref_") and new_user:
+            try:
+                referrer_id = int(source[4:])
+                save_user_referral(user_id, referrer_id)
+            except (ValueError, TypeError):
+                logger.warning(f"Invalid referral link: {source}")
 
     # Уведомляем админа о новом пользователе
     if new_user and not is_admin(user_id):
@@ -145,7 +157,8 @@ async def regenerate_photo(
     if not can_generate(user_id):
         await callback.message.answer(
             "К сожалению, все генерации использованы 😔\n\n"
-            "Купи пакет генераций, чтобы продолжить!",
+            "Пригласи друга — получи бесплатную генерацию!\n"
+            "Или купи пакет генераций 👇",
             reply_markup=get_buy_keyboard(),
         )
         await state.clear()
@@ -174,9 +187,11 @@ async def regenerate_photo(
         openai_client,
     )
     from bot.services.user_limits import (
+        get_generations_count,
         has_free_generations,
         increment_generations,
         log_generation,
+        reward_referrer,
     )
 
     await state.set_state(GenerationStates.processing)
@@ -221,9 +236,26 @@ async def regenerate_photo(
         await processing_msg.delete()
 
         # Увеличиваем счётчик генераций
+        was_first_generation = get_generations_count(user_id) == 0
         is_paid = not has_free_generations(user_id)
         increment_generations(user_id)
         log_generation(user_id, gender, style, is_paid)
+
+        # Реферальная награда: если это первая генерация пользователя
+        if was_first_generation:
+            referrer_id = reward_referrer(user_id)
+            if referrer_id:
+                try:
+                    await callback.bot.send_message(
+                        referrer_id,
+                        "🎉 Твой друг сделал первое фото!\n"
+                        "Тебе начислена <b>1 бесплатная генерация</b>.",
+                        parse_mode="HTML",
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Failed to notify referrer {referrer_id}: {e}"
+                    )
 
         # Формируем caption с информацией об оставшихся генерациях
         remaining_after = get_remaining_generations(user_id)
@@ -285,6 +317,37 @@ async def regenerate_photo(
 
     finally:
         await state.clear()
+
+
+@router.callback_query(F.data == "referral_link")
+async def show_referral_link(
+    callback: CallbackQuery, state: FSMContext
+) -> None:
+    """Показывает реферальную ссылку пользователю"""
+    await callback.answer()
+    user_id = callback.from_user.id
+    link = get_referral_link(user_id)
+    earned = get_referral_credits_earned(user_id)
+    remaining_referrals = MAX_REFERRAL_CREDITS - earned
+
+    if remaining_referrals <= 0:
+        await callback.message.answer(
+            "Ты уже получил максимум бонусных генераций "
+            f"по реферальной программе ({MAX_REFERRAL_CREDITS} шт.).\n\n"
+            "Спасибо, что приглашаешь друзей!",
+        )
+        return
+
+    await callback.message.answer(
+        "🎁 <b>Пригласи друга — получи генерацию!</b>\n\n"
+        "Отправь эту ссылку другу:\n"
+        f"<code>{link}</code>\n\n"
+        "Когда друг сделает своё первое фото, "
+        "тебе автоматически начислится <b>1 бесплатная генерация</b>.\n\n"
+        f"Ты можешь получить ещё {remaining_referrals} "
+        f"генераций по рефералке.",
+        parse_mode="HTML",
+    )
 
 
 @router.callback_query(

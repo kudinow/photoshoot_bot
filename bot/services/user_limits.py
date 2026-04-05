@@ -20,7 +20,9 @@ _PROD_JSON = _PROD_DIR / "user_generations.json"
 _LOCAL_JSON = _LOCAL_DIR / "user_generations.json"
 
 MAX_FREE_GENERATIONS = 1
+MAX_REFERRAL_CREDITS = 5
 ADMIN_ID = 91892537
+BOT_USERNAME = "photoshoot_generator_bot"
 
 
 def _get_db_path() -> Path:
@@ -142,6 +144,17 @@ def init_db() -> None:
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_genlog_user_date
             ON generations_log(user_id, created_at)
+        """)
+
+        # Таблица реферальных приглашений (user-to-user)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_referrals (
+                referred_user_id INTEGER PRIMARY KEY,
+                referrer_user_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                rewarded INTEGER NOT NULL DEFAULT 0,
+                rewarded_at TEXT
+            )
         """)
 
         # Таблица лога рассылок
@@ -575,3 +588,100 @@ def finish_broadcast_log(
                WHERE id = ?""",
             (sent, blocked, failed, broadcast_id),
         )
+
+
+# --- Реферальная программа (user-to-user) ---
+
+
+def save_user_referral(referred_user_id: int, referrer_user_id: int) -> bool:
+    """Сохраняет реферальную связь. Возвращает True если связь создана."""
+    if referred_user_id == referrer_user_id:
+        logger.warning(f"Self-referral attempt: {referred_user_id}")
+        return False
+
+    # Проверяем, что реферер существует в БД
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM users WHERE user_id = ?",
+            (referrer_user_id,),
+        ).fetchone()
+        if not row:
+            logger.warning(
+                f"Referrer {referrer_user_id} not found in DB"
+            )
+            return False
+
+        try:
+            conn.execute(
+                "INSERT OR IGNORE INTO user_referrals "
+                "(referred_user_id, referrer_user_id) VALUES (?, ?)",
+                (referred_user_id, referrer_user_id),
+            )
+        except sqlite3.IntegrityError:
+            return False
+
+    logger.info(
+        f"Referral saved: {referred_user_id} invited by {referrer_user_id}"
+    )
+    return True
+
+
+def get_referral_credits_earned(user_id: int) -> int:
+    """Считает, сколько реферальных кредитов уже начислено юзеру"""
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM user_referrals "
+            "WHERE referrer_user_id = ? AND rewarded = 1",
+            (user_id,),
+        ).fetchone()
+    return row[0] if row else 0
+
+
+def reward_referrer(referred_user_id: int) -> int | None:
+    """Начисляет кредит рефереру после первой генерации друга.
+
+    Возвращает referrer_user_id если награда начислена, иначе None.
+    """
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT referrer_user_id, rewarded FROM user_referrals "
+            "WHERE referred_user_id = ?",
+            (referred_user_id,),
+        ).fetchone()
+
+        if not row:
+            return None  # Юзер пришёл не по реферальной ссылке
+
+        referrer_user_id, already_rewarded = row
+
+        if already_rewarded:
+            return None  # Уже начислено
+
+        # Проверяем кэп реферера
+        earned = get_referral_credits_earned(referrer_user_id)
+        if earned >= MAX_REFERRAL_CREDITS:
+            logger.info(
+                f"Referrer {referrer_user_id} hit referral cap "
+                f"({earned}/{MAX_REFERRAL_CREDITS})"
+            )
+            return None
+
+        # Начисляем кредит и ставим флаг
+        conn.execute(
+            "UPDATE user_referrals SET rewarded = 1, "
+            "rewarded_at = datetime('now') "
+            "WHERE referred_user_id = ?",
+            (referred_user_id,),
+        )
+
+    add_paid_credits(referrer_user_id, 1)
+    logger.info(
+        f"Referral reward: +1 credit to {referrer_user_id} "
+        f"(invited {referred_user_id})"
+    )
+    return referrer_user_id
+
+
+def get_referral_link(user_id: int) -> str:
+    """Возвращает реферальную ссылку пользователя"""
+    return f"https://t.me/{BOT_USERNAME}?start=ref_{user_id}"
