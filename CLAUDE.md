@@ -204,6 +204,12 @@ ssh kudinow@89.169.163.73 "/opt/photoshoot_ai/venv/bin/python3 /opt/photoshoot_a
 - `users.created_at` — user registration timestamp (added for dashboard, backfilled from referrals/payments)
 - `generations_log` — logs each generation with timestamp, gender, style, is_paid (for retention and activity charts)
 
+## Domain & DNS
+
+**Domain:** `ai-photobot.ru` — registered and DNS managed at **reg.ru** (nameservers: `ns1.reg.ru`, `ns2.reg.ru`).
+
+**Webmaster verification files:** `landing/yandex_7b748dde2c403ea7.html` — deployed to `/var/www/landing/` root. For new verification files, SCP to the same location.
+
 ## Deployment (Bot)
 
 Production runs on Yandex Cloud Ubuntu 22.04 VM as systemd service (`photoshoot_ai.service`), under the `deploy` user at `/opt/photoshoot_ai`. One-time setup via `deploy.sh`. Update process: stop service → SCP files → restart. See `DEPLOY.md` and `SERVER_COMMANDS.md` for details.
