@@ -186,9 +186,11 @@ async def regenerate_photo(
         OpenAIClientError,
         openai_client,
     )
+    from bot.handlers.rating import send_rating_request
     from bot.services.user_limits import (
         get_generations_count,
         has_free_generations,
+        has_user_rated,
         increment_generations,
         log_generation,
         reward_referrer,
@@ -288,6 +290,10 @@ async def regenerate_photo(
         logger.info(
             f"Successfully regenerated photo for user {user_id}"
         )
+
+        # После первой успешной генерации — запросить оценку (один раз в жизни)
+        if was_first_generation and not has_user_rated(user_id):
+            await send_rating_request(callback.bot, callback.message.chat.id)
 
     except OpenAIClientError as e:
         logger.error(f"OpenAI error for user {user_id}: {e}")
