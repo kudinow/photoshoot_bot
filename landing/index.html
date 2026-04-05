@@ -580,7 +580,7 @@
         <a href="/" class="nav__logo">Фото для резюме</a>
         <div class="nav__links">
             <a href="/blog/" class="nav__link">Блог</a>
-            <a href="https://t.me/photoshoot_generator_bot?start=landing" class="nav__cta">Сгенерировать портрет</a>
+            <a href="https://t.me/photoshoot_generator_bot" class="nav__cta">Сгенерировать портрет</a>
         </div>
     </div>
 </nav>
@@ -590,7 +590,7 @@
     <div class="hero__text">
         <h1 class="hero__title">Профессиональные фотографии для&nbsp;вашего резюме и&nbsp;LinkedIn</h1>
         <p class="hero__subtitle">AI-бот в Telegram превращает любую фотографию в студийный портрет за 30 секунд. Идеально для резюме, LinkedIn и&nbsp;социальных сетей.</p>
-        <a href="https://t.me/photoshoot_generator_bot?start=landing" class="hero__btn">Сгенерировать портрет →</a>
+        <a href="https://t.me/photoshoot_generator_bot" class="hero__btn">Сгенерировать портрет →</a>
         <p class="hero__note">Первая генерация бесплатно — без регистрации и карты</p>
     </div>
     <div class="hero__visual">
@@ -812,7 +812,7 @@
                 <div class="price-card__count">5 генераций</div>
                 <div class="price-card__price">149 ₽</div>
                 <div class="price-card__per">30 ₽ за фото</div>
-                <a href="https://t.me/photoshoot_generator_bot?start=landing" class="price-card__btn">Выбрать</a>
+                <a href="https://t.me/photoshoot_generator_bot" class="price-card__btn">Выбрать</a>
             </div>
             <div class="price-card price-card--popular reveal">
                 <div class="price-card__badge">Выбирают чаще</div>
@@ -820,14 +820,14 @@
                 <div class="price-card__count">15 генераций</div>
                 <div class="price-card__price">349 ₽</div>
                 <div class="price-card__per">23 ₽ за фото</div>
-                <a href="https://t.me/photoshoot_generator_bot?start=landing" class="price-card__btn price-card__btn--filled">Выбрать</a>
+                <a href="https://t.me/photoshoot_generator_bot" class="price-card__btn price-card__btn--filled">Выбрать</a>
             </div>
             <div class="price-card reveal">
                 <div class="price-card__name">Макс</div>
                 <div class="price-card__count">50 генераций</div>
                 <div class="price-card__price">899 ₽</div>
                 <div class="price-card__per">18 ₽ за фото</div>
-                <a href="https://t.me/photoshoot_generator_bot?start=landing" class="price-card__btn">Выбрать</a>
+                <a href="https://t.me/photoshoot_generator_bot" class="price-card__btn">Выбрать</a>
             </div>
         </div>
     </div>
@@ -866,13 +866,13 @@
         <p class="cta-section__pretitle reveal">Занимает 30 секунд</p>
         <h2 class="cta-section__title reveal">Попробуйте прямо сейчас — первое фото бесплатно</h2>
         <p class="cta-section__subtitle reveal">Без регистрации, без карты, без обязательств</p>
-        <a href="https://t.me/photoshoot_generator_bot?start=landing" class="cta-section__btn reveal">Сгенерировать портрет →</a>
+        <a href="https://t.me/photoshoot_generator_bot" class="cta-section__btn reveal">Сгенерировать портрет →</a>
     </div>
 </section>
 
 <!-- STICKY MOBILE CTA -->
 <div class="sticky-cta" id="stickyCta">
-    <a href="https://t.me/photoshoot_generator_bot?start=landing" class="sticky-cta__btn">Сгенерировать портрет →</a>
+    <a href="https://t.me/photoshoot_generator_bot" class="sticky-cta__btn">Сгенерировать портрет →</a>
 </div>
 
 <!-- FOOTER -->
@@ -972,6 +972,16 @@ const observer = new IntersectionObserver((entries) => {
 }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
 
 document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+/* ── UTM → Deep Link ── */
+(function() {
+    var source = new URLSearchParams(window.location.search).get('utm_source');
+    if (!source) return;
+    var suffix = '?start=' + encodeURIComponent(source);
+    document.querySelectorAll('a[href*="t.me/photoshoot_generator_bot"]').forEach(function(a) {
+        a.href = a.href.split('?')[0] + suffix;
+    });
+})();
 </script>
 </body>
 </html>
