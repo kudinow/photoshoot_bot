@@ -74,6 +74,33 @@ def init_db() -> None:
         except sqlite3.OperationalError:
             pass  # Колонка уже существует
 
+        # Миграция: добавляем колонку last_photo_file_id (для отправки админу оригинала фото)
+        try:
+            conn.execute(
+                "ALTER TABLE users ADD COLUMN last_photo_file_id TEXT"
+            )
+            logger.info("Added last_photo_file_id column to users table")
+        except sqlite3.OperationalError:
+            pass  # Колонка уже существует
+
+        # Миграция: добавляем колонку last_result_url (URL результата из kie.ai для отправки админу)
+        try:
+            conn.execute(
+                "ALTER TABLE users ADD COLUMN last_result_url TEXT"
+            )
+            logger.info("Added last_result_url column to users table")
+        except sqlite3.OperationalError:
+            pass  # Колонка уже существует
+
+        # Миграция: добавляем колонку has_rated (флаг "юзер уже оценивал генерацию")
+        try:
+            conn.execute(
+                "ALTER TABLE users ADD COLUMN has_rated INTEGER NOT NULL DEFAULT 0"
+            )
+            logger.info("Added has_rated column to users table")
+        except sqlite3.OperationalError:
+            pass  # Колонка уже существует
+
         # Таблица истории платежей
         conn.execute("""
             CREATE TABLE IF NOT EXISTS payments (
