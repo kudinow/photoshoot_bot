@@ -174,6 +174,73 @@ class KieClient:
         task_id = await self.create_task(image_url, prompt, output_format, image_size)
         return await self.wait_for_result(task_id)
 
+    async def create_gpt_image_2_task(
+        self,
+        image_url: str,
+        prompt: str,
+        aspect_ratio: str = "3:4",
+        resolution: str = "2K",
+    ) -> str:
+        """Создаёт задачу GPT Image 2 (image-to-image).
+
+        Отличается от nano-banana payload'а: модель `gpt-image-2-image-to-image`,
+        поле `input_urls` вместо `image_urls`, `aspect_ratio` вместо `image_size`,
+        плюс отдельный `resolution` (1K/2K/4K).
+        """
+        url = f"{self.base_url}/api/v1/jobs/createTask"
+
+        payload = {
+            "model": "gpt-image-2-image-to-image",
+            "input": {
+                "prompt": prompt,
+                "input_urls": [image_url],
+                "aspect_ratio": aspect_ratio,
+                "resolution": resolution,
+            },
+        }
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, headers=self.headers) as resp:
+                if resp.status != 200:
+                    text = await resp.text()
+                    logger.error(
+                        f"Failed to create GPT Image 2 task: {resp.status} - {text}"
+                    )
+                    raise KieClientError(
+                        f"Failed to create GPT Image 2 task: {resp.status}"
+                    )
+
+                data = await resp.json()
+
+                if data.get("code") != 200:
+                    raise KieClientError(
+                        f"API error: {data.get('msg') or data.get('message')}"
+                    )
+
+                task_id = data.get("data", {}).get("taskId")
+                if not task_id:
+                    logger.error(f"No taskId in response: {data}")
+                    raise KieClientError("No taskId in response")
+
+                logger.info(f"Created GPT Image 2 task: {task_id}")
+                return task_id
+
+    async def transform_photo_gpt_image_2(
+        self,
+        image_url: str,
+        prompt: str,
+        aspect_ratio: str = "3:4",
+        resolution: str = "2K",
+    ) -> str:
+        """Полный цикл генерации через GPT Image 2: создание задачи + ожидание.
+
+        Статус-эндпоинт у kie.ai общий, поэтому переиспользуем wait_for_result().
+        """
+        task_id = await self.create_gpt_image_2_task(
+            image_url, prompt, aspect_ratio, resolution
+        )
+        return await self.wait_for_result(task_id)
+
     async def download_image(self, url: str) -> bytes:
         """
         Скачивает изображение по URL.

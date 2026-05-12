@@ -18,6 +18,7 @@ from bot.services.user_limits import (
     get_last_generation_context,
     has_user_rated,
     mark_as_rated,
+    save_rating,
 )
 from bot.states.generation import GenerationStates
 
@@ -129,6 +130,27 @@ async def _send_feedback_text_to_admin(
         logger.error(f"Failed to send feedback text to admin: {e}")
 
 
+async def _notify_admin_five_star(
+    bot: Bot,
+    user_id: int,
+    username: str | None,
+    first_name: str | None,
+) -> None:
+    """Короткое уведомление админу о 5⭐ (без фото — юзер доволен)."""
+    if user_id == ADMIN_ID:
+        return
+    username_str = f"@{username}" if username else "(нет username)"
+    name_str = first_name or ""
+    try:
+        await bot.send_message(
+            ADMIN_ID,
+            f"⭐ Новая оценка: 5/5\n"
+            f"User: {user_id} ({username_str}) {name_str}",
+        )
+    except Exception as e:
+        logger.error(f"Failed to send 5-star notification to admin: {e}")
+
+
 @router.callback_query(F.data.startswith("rate:"))
 async def handle_rating(
     callback: CallbackQuery, state: FSMContext, bot: Bot
@@ -153,11 +175,20 @@ async def handle_rating(
         logger.info(f"User {user_id} already rated, ignoring extra click")
         return
 
-    # Помечаем юзера как оценившего (один раз в жизни)
+    logger.info(f"User {user_id} rated: {rating}/5")
+
+    # Помечаем юзера как оценившего (один раз в жизни) и сохраняем значение
     mark_as_rated(user_id)
+    save_rating(user_id, rating)
 
     if rating == 5:
-        # 5 звёзд — благодарим и предлагаем поделиться
+        # 5 звёзд — шлём админу короткий алерт и благодарим юзера
+        await _notify_admin_five_star(
+            bot=bot,
+            user_id=user_id,
+            username=callback.from_user.username,
+            first_name=callback.from_user.first_name,
+        )
         try:
             await callback.message.edit_text(
                 "🎉 Рад, что понравилось!\n\n"

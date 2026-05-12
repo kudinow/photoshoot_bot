@@ -29,9 +29,9 @@ No test suite, linter, or build step exists. Dependencies: `pip install -r requi
 1. User sends `/start` → sees welcome + gender selection buttons
 2. User picks gender → sees clothing style selection (business/casual/creative)
 3. User picks style → FSM moves to `awaiting_photo` state
-4. User sends photo → handler calls OpenRouter (GPT-5.2) to generate a style-aware prompt, then calls kie.ai API to transform the image (~28s total)
+4. User sends photo → handler calls OpenRouter (GPT-5.2) to generate a style-aware prompt, then calls kie.ai API (`gpt-image-2-image-to-image`) to transform the image
 5. Result photo sent back with "Regenerate" and "New photo" buttons
-6. **After the user's first successful generation only**, bot sends a rating prompt (1-5 stars). High rating (5) surfaces the referral link; low rating (1-4) forwards both photos + feedback to admin. One-shot per user, gated by `users.has_rated` flag.
+6. **After the user's first successful generation only**, bot sends a rating prompt (1-5 stars). All ratings persist to `ratings` table and notify admin: 5⭐ sends a short text alert and surfaces the referral link to the user; 1-4⭐ forwards both photos + feedback text to admin. One-shot per user, gated by `users.has_rated` flag.
 
 **Key modules:**
 
@@ -46,7 +46,8 @@ No test suite, linter, or build step exists. Dependencies: `pip install -r requi
 | `bot/handlers/broadcast.py` | Admin broadcasting: `/broadcast` segmented mass messages + `/send USER_ID text` for direct per-user messages |
 | `bot/services/yookassa_client.py` | Async wrapper over YooKassa SDK (payment creation + status check via `run_in_executor`) |
 | `bot/services/openai_client.py` | `OpenAIClient` — async prompt generation via OpenRouter (GPT-5.2) |
-| `bot/services/kie_client.py` | `KieClient` — async image transformation via kie.ai (google/nano-banana-edit), with polling and exponential backoff |
+| `bot/services/kie_client.py` | `KieClient` — async image transformation via kie.ai. Prod uses `transform_photo_gpt_image_2()` (model `gpt-image-2-image-to-image`, aspect_ratio `3:4`, resolution `2K`). Legacy `transform_photo()` (model `google/nano-banana-edit`) is kept in the file as fallback but not called from any handler. |
+| `bot/handlers/admin_test.py` | Admin-only `/test_gpt` flow (gender → style → photo). Always runs GPT Image 2; does not write to `users.generations`, `paid_credits`, `generations_log`, `ratings`. Useful as a no-side-effect sandbox for the admin. |
 | `bot/services/user_limits.py` | SQLite-based user limit tracking (1 free generation + paid credits, admin bypass), payment history, deep-link referral stats, user-to-user referral program, rating helpers, `init_db()` called at startup |
 | `bot/states/generation.py` | `GenerationStates` FSM: `selecting_gender` → `selecting_style` → `awaiting_photo` → `processing`; plus `awaiting_feedback_text` used by the rating flow |
 | `bot/keyboards/inline.py` | Inline keyboard builders: gender/style selection, restart/regenerate, buy credits + package selection, rating stars (numbered `1⭐..5⭐`), feedback skip, five-star referral CTA |
@@ -60,6 +61,7 @@ No test suite, linter, or build step exists. Dependencies: `pip install -r requi
 - `user_referrals(referred_user_id, referrer_user_id, created_at, rewarded, rewarded_at)` — user-to-user referral relationships
 - `generations_log(id, user_id, created_at, gender, style, is_paid)`
 - `broadcasts(id, segment, message_text, total_recipients, sent, blocked, failed, started_at, finished_at)`
+- `ratings(id, user_id, value, created_at)` — каждая клик-оценка 1-5⭐ (для аналитики и ретроспективного просмотра; пишется одновременно с `users.has_rated=1`)
 
 On first run, `init_db()` auto-migrates schema (adds columns via idempotent `ALTER TABLE ... ADD COLUMN` wrapped in try/except, creates tables) and migrates legacy JSON data.
 
@@ -141,14 +143,14 @@ After the user's first successful generation (and only then), the bot asks them 
 **Flow:**
 1. `photo.py` (and `start.py` regenerate branch for symmetry) calls `send_rating_request()` after saving the result, if `was_first_generation and not has_user_rated(user_id)`.
 2. User sees message "Как тебе результат? Оцени от 1 до 5:" with keyboard `1⭐ 2⭐ 3⭐ 4⭐ 5⭐`.
-3. `handle_rating` callback in `rating.py` parses the star number, calls `mark_as_rated(user_id)` (race-guard: returns early if already rated), and branches:
-   - **5 stars:** edits message to thanks + `get_five_star_keyboard` (single button reusing existing `referral_link` callback). No admin notification.
+3. `handle_rating` callback in `rating.py` parses the star number, logs the value, calls `mark_as_rated(user_id)` + `save_rating(user_id, rating)` (race-guard: returns early if already rated), and branches:
+   - **5 stars:** sends admin a short text-only notification (`⭐ Новая оценка: 5/5` + user info) via `_notify_admin_five_star`, then edits message to thanks + `get_five_star_keyboard` (single button reusing existing `referral_link` callback).
    - **1-4 stars:** immediately forwards two messages to `ADMIN_ID` (original photo via `last_photo_file_id`, result via `last_result_url`) with caption containing rating/user info/gender/style. Edits user's message to feedback prompt + skip button, transitions FSM to `awaiting_feedback_text`.
 4. User writes text feedback → `handle_feedback_text` forwards it as a stage-2 admin message, clears state. User presses Skip → `handle_feedback_skip` clears state, no extra admin message. User sends non-text (photo/sticker) → catch-all handler nudges them to text or Skip without losing state.
 
 **Admin self-exclusion:** if `user_id == ADMIN_ID`, admin notifications are suppressed to avoid self-spam.
 
-**Data:** no rating history is stored — only the `has_rated` one-shot flag. Feedback is ephemeral (Telegram messages to admin only). If analytics over ratings is ever needed, a new table would have to be added.
+**Data:** every rating is persisted to the `ratings` table (`id, user_id, value, created_at`) for retroactive analytics; `users.has_rated` stays as the one-shot gate. Feedback text is ephemeral (Telegram messages to admin only).
 
 **Design docs:** [docs/superpowers/specs/2026-04-05-generation-rating-design.md](docs/superpowers/specs/2026-04-05-generation-rating-design.md) and [docs/superpowers/plans/2026-04-05-generation-rating.md](docs/superpowers/plans/2026-04-05-generation-rating.md).
 

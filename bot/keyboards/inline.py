@@ -188,6 +188,38 @@ def get_feedback_skip_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def get_test_gender_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура выбора пола для админского теста GPT Image 2"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="👨 Мужской", callback_data="t_gender:male"),
+                InlineKeyboardButton(text="👩 Женский", callback_data="t_gender:female"),
+            ]
+        ]
+    )
+
+
+def get_test_style_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура выбора стиля для админского теста GPT Image 2"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="👔 Деловой", callback_data="t_style:business")],
+            [InlineKeyboardButton(text="👕 Кежуал", callback_data="t_style:casual")],
+            [InlineKeyboardButton(text="🎨 Креативный", callback_data="t_style:creative")],
+        ]
+    )
+
+
+def get_test_restart_keyboard() -> InlineKeyboardMarkup:
+    """Кнопка повторного запуска теста GPT Image 2"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🔁 Ещё тест", callback_data="test_gpt_restart")],
+        ]
+    )
+
+
 def get_five_star_keyboard() -> InlineKeyboardMarkup:
     """Клавиатура после оценки 5 звёзд — предложение поделиться реферальной ссылкой.
 

@@ -184,6 +184,21 @@ def init_db() -> None:
             )
         """)
 
+        # Таблица истории оценок генераций (для аналитики ретроспективно)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ratings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                value INTEGER NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY (user_id) REFERENCES users(user_id)
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_ratings_user_date
+            ON ratings(user_id, created_at)
+        """)
+
         # Таблица лога рассылок
         conn.execute("""
             CREATE TABLE IF NOT EXISTS broadcasts (
@@ -439,6 +454,15 @@ def has_user_rated(user_id: int) -> bool:
             (user_id,),
         ).fetchone()
     return bool(row and row[0])
+
+
+def save_rating(user_id: int, value: int) -> None:
+    """Сохраняет значение оценки в таблицу ratings (для аналитики)."""
+    with _get_conn() as conn:
+        conn.execute(
+            "INSERT INTO ratings (user_id, value) VALUES (?, ?)",
+            (user_id, value),
+        )
 
 
 def get_last_generation_context(

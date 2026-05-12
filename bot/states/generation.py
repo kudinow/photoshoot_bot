@@ -9,3 +9,12 @@ class GenerationStates(StatesGroup):
     awaiting_photo = State()    # Ждём фото от пользователя
     processing = State()        # Обрабатываем через API
     awaiting_feedback_text = State()  # Ждём текст фидбека после низкой оценки
+
+
+class AdminTestStates(StatesGroup):
+    """Состояния для админского теста модели GPT Image 2 (/test_gpt)"""
+
+    selecting_gender = State()
+    selecting_style = State()
+    awaiting_photo = State()
+    processing = State()
