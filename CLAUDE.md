@@ -32,6 +32,7 @@ No test suite, linter, or build step exists. Dependencies: `pip install -r requi
 4. User sends photo → handler calls OpenRouter (GPT-5.2) to generate a style-aware prompt, then calls kie.ai API (`gpt-image-2-image-to-image`) to transform the image
 5. Result photo sent back with "Regenerate" and "New photo" buttons
 6. **After the user's first successful generation only**, bot sends a rating prompt (1-5 stars). All ratings persist to `ratings` table and notify admin: 5⭐ sends a short text alert and surfaces the referral link to the user; 1-4⭐ forwards both photos + feedback text to admin. One-shot per user, gated by `users.has_rated` flag.
+7. For non-admin users, the first-generation result is watermarked (`ai-photobot.ru` diagonal); the clean version is delivered after a dedicated 50₽ `watermark_unlock` payment (0 credits) via the `🔓 Убрать знак — 50 ₽` button.
 
 **Key modules:**
 
@@ -41,14 +42,16 @@ No test suite, linter, or build step exists. Dependencies: `pip install -r requi
 | `bot/config.py` | `Settings` (pydantic BaseSettings from `.env`) + `CreditPackage` / `CREDIT_PACKAGES` + style-aware prompts (`PROMPT_BASE` + `STYLE_PROMPTS` dict + `build_system_prompt()`) + `PROMPT_CRITICAL_SUFFIX` |
 | `bot/handlers/start.py` | `/start` command, gender selection, style selection, regenerate callbacks |
 | `bot/handlers/photo.py` | Photo upload handler, orchestrates prompt generation → image transformation → response |
-| `bot/handlers/payment.py` | Payment flow: package selection, YooKassa payment creation, status polling |
+| `bot/handlers/payment.py` | Payment flow: package selection, YooKassa payment creation, status polling. `_deliver_after_payment()` branches on the `watermark_unlock` package → sends the clean photo instead of crediting generations |
 | `bot/handlers/rating.py` | Generation rating flow: star-click callbacks, low-rating admin forwarding (two-stage: photos + optional text), 5-star referral link surfacing, non-text catch-all in feedback state |
+| `bot/services/watermark.py` | Pillow `apply_watermark()` + `save_clean_copy()` / `get_clean_copy()` for first-generation watermarking |
+| `bot/handlers/watermark.py` | `unlock_watermark` callback: idempotent clean-photo delivery if already paid, else starts a 50₽ payment |
 | `bot/handlers/broadcast.py` | Admin broadcasting: `/broadcast` segmented mass messages + `/send USER_ID text` for direct per-user messages |
 | `bot/services/yookassa_client.py` | Async wrapper over YooKassa SDK (payment creation + status check via `run_in_executor`) |
 | `bot/services/openai_client.py` | `OpenAIClient` — async prompt generation via OpenRouter (GPT-5.2) |
 | `bot/services/kie_client.py` | `KieClient` — async image transformation via kie.ai. Prod uses `transform_photo_gpt_image_2()` (model `gpt-image-2-image-to-image`, aspect_ratio `3:4`, resolution `2K`). Legacy `transform_photo()` (model `google/nano-banana-edit`) is kept in the file as fallback but not called from any handler. |
 | `bot/handlers/admin_test.py` | Admin-only `/test_gpt` flow (gender → style → photo). Always runs GPT Image 2; does not write to `users.generations`, `paid_credits`, `generations_log`, `ratings`. Useful as a no-side-effect sandbox for the admin. |
-| `bot/services/user_limits.py` | SQLite-based user limit tracking (1 free generation + paid credits, admin bypass), payment history, deep-link referral stats, user-to-user referral program, rating helpers, `init_db()` called at startup |
+| `bot/services/user_limits.py` | SQLite-based user limit tracking (1 free generation + paid credits, admin bypass), payment history, deep-link referral stats, user-to-user referral program, rating helpers, `has_unlocked_watermark()` for watermark unlock, `init_db()` called at startup |
 | `bot/states/generation.py` | `GenerationStates` FSM: `selecting_gender` → `selecting_style` → `awaiting_photo` → `processing`; plus `awaiting_feedback_text` used by the rating flow |
 | `bot/keyboards/inline.py` | Inline keyboard builders: gender/style selection, restart/regenerate, buy credits + package selection, rating stars (numbered `1⭐..5⭐`), feedback skip, five-star referral CTA |
 
@@ -154,23 +157,62 @@ After the user's first successful generation (and only then), the bot asks them 
 
 **Design docs:** [docs/superpowers/specs/2026-04-05-generation-rating-design.md](docs/superpowers/specs/2026-04-05-generation-rating-design.md) and [docs/superpowers/plans/2026-04-05-generation-rating.md](docs/superpowers/plans/2026-04-05-generation-rating.md).
 
+## First-Generation Watermark + 50₽ Unlock
+
+On every non-admin user's **first successful generation**, the result is watermarked with a diagonal `ai-photobot.ru` pattern. The clean version is saved to disk and delivered after the user pays a dedicated **50₽** (`watermark_unlock`) micro-payment — which grants **0 generation credits**, only the clean photo.
+
+**Scope:**
+- Fires only when `was_first_generation and not is_admin(user_id)` in [bot/handlers/photo.py](bot/handlers/photo.py) (computed before `increment_generations`).
+- Admin (`ADMIN_ID`) bypassed — always clean, no unlock button.
+- Referral-credit generations (#2+) are clean.
+- Soft degradation: if `apply_watermark` raises, the user gets the clean photo and NO unlock button.
+
+**Visual:** diagonal white `ai-photobot.ru`, black stroke, alpha ≈ 110, rotated -30°, step ≈ 22% of the diagonal. Rendered by [bot/services/watermark.py](bot/services/watermark.py) (Pillow + DejaVuSans-Bold on Ubuntu / Arial Bold on macOS, default-font fallback).
+
+**Storage:** `/opt/photoshoot_ai/clean/{user_id}.jpg` (prod) or `<project>/clean/{user_id}.jpg` (local). No DB column — file existence is the source of truth. No cleanup cron.
+
+**Unlock flow:**
+- Caption on the watermarked photo upsells 50₽; the keyboard's top row is `🔓 Убрать знак — 50 ₽` (callback `unlock_watermark`).
+- [bot/handlers/watermark.py](bot/handlers/watermark.py): no clean file → "Чистая версия больше недоступна."; already paid (`has_unlocked_watermark`) → re-send clean photo free (idempotent); else create a 50₽ YooKassa payment + link and start polling.
+- The 50₽ unlock is a special `CreditPackage` `watermark_unlock` (credits=0, [bot/config.py](bot/config.py)), **not** in `CREDIT_PACKAGES` (hidden from the buy menu) but resolvable via `get_package_by_id`. It rides the existing payment pipeline; on confirmation [bot/handlers/payment.py](bot/handlers/payment.py)::`_deliver_after_payment` sends the clean photo (caption `🎁 Готово! Вот твоё фото без водяного знака.`) instead of crediting generations. Admin notification says "Снятие водяного знака за 50 ₽".
+
+**Key code:** [bot/services/watermark.py](bot/services/watermark.py) (`apply_watermark`, `save_clean_copy`, `get_clean_copy`), [bot/services/user_limits.py](bot/services/user_limits.py) (`has_unlocked_watermark`), [bot/keyboards/inline.py](bot/keyboards/inline.py) (`has_watermarked` kwarg).
+
+**Not in `start.py` regenerate branch** on purpose: `was_first_generation` there is always `False` for non-admin (photo.py increments before save_last_photo) — a hook would be dead code.
+
+**Design docs:** [docs/superpowers/specs/2026-05-29-watermark-unlock-50r-design.md](docs/superpowers/specs/2026-05-29-watermark-unlock-50r-design.md) and [docs/superpowers/plans/2026-05-29-watermark-unlock-50r.md](docs/superpowers/plans/2026-05-29-watermark-unlock-50r.md).
+
 ## Landing Page
 
-**Domain:** https://ai-photobot.ru (+ www)
+**Domain:** https://ai-photobot.ru (apex). `www.ai-photobot.ru` → 301 redirect to apex (configured in Caddyfile).
 
 **Stack:** Static HTML served by **Caddy** (NOT nginx) on the same Yandex Cloud VM.
 
-**Files on server:** `/var/www/landing/` — `index.html` + `photo/` directory with images.
+**Files on server:** `/var/www/landing/` — `index.html`, `robots.txt`, `sitemap.xml`, `yandex_<hash>.html` (Я.Вебмастер verification), `photo/` directory with images, `blog/` (built blog HTML), `dash/` (analytics dashboard).
 
-**Source:** `landing/index.html` is the active landing.
+**Source:** `landing/index.html` is the active landing. Inline `<style>`, no build step.
+
+**SEO infrastructure on the landing** (added 2026-05-15):
+- `<link rel="canonical">`, full `og:*` (`og:image` is portrait `hero-after.jpg` — TODO: brandable 1200×630), `twitter:summary_large_image`, `theme-color`.
+- Three JSON-LD blocks in `<head>`: `Organization`, `WebApplication` (with 4 Offers — Free/Стандарт/Про/Макс), `FAQPage` (5 Q&A — extended from 4 visible cards). Keep the visible FAQ cards and JSON-LD block in sync manually when editing.
+- `landing/robots.txt`: `Allow: /, Disallow: /dash/, Sitemap: ...`.
+- `landing/sitemap.xml`: auto-generated by `scripts/gen_sitemap.py` — see Blog section below.
 
 **Deploy landing changes:**
 ```bash
 scp landing/index.html kudinow@89.169.163.73:/var/www/landing/index.html
+ssh kudinow@89.169.163.73 "sudo chown kudinow:kudinow /var/www/landing/index.html"
 ```
 No restart needed — Caddy serves static files, changes are instant.
 
-**Caddy config:** `/etc/caddy/Caddyfile` — auto-HTTPS, gzip, `file_server` from `/var/www/landing`.
+**Caddy config:** `/etc/caddy/Caddyfile` (source-of-truth copy in repo: `infra/Caddyfile`). Provides auto-HTTPS, zstd+gzip compression, `Cache-Control: public, max-age=31536000, immutable` on `*.css|js|png|jpg|jpeg|webp|gif|svg|ico|woff|woff2|ttf`, `Cache-Control: public, max-age=3600` on `/sitemap.xml` and `/robots.txt`, basic-auth on `/dash/*`, www→apex 301 redirect.
+
+**Deploy Caddyfile changes:**
+```bash
+scp infra/Caddyfile kudinow@89.169.163.73:/tmp/Caddyfile
+ssh kudinow@89.169.163.73 "sudo caddy validate --config /tmp/Caddyfile --adapter caddyfile && sudo cp /tmp/Caddyfile /etc/caddy/Caddyfile && sudo systemctl reload caddy"
+```
+**Always** run `caddy validate` before `cp` + `reload` — a bad config can take the whole site down.
 
 ## Blog
 
@@ -183,12 +225,15 @@ No restart needed — Caddy serves static files, changes are instant.
 | Path | Purpose |
 |------|---------|
 | `blog/posts/*.md` | Markdown source files with YAML frontmatter (title, slug, date, description, published) |
-| `blog/build.py` | Build script: parses MD → generates static HTML. Flags: `--deploy` (SCP to server), `--local-deploy` (copy to `/var/www/landing/blog/` on server). Dependencies: `markdown`, `pyyaml` |
+| `blog/build.py` | Build script: parses MD → generates static HTML. Flags: `--deploy` (SCP to server), `--local-deploy` (copy to `/var/www/landing/blog/` on server). Each article template injects `Article` + `BreadcrumbList` JSON-LD, `og:*` + `twitter:summary_large_image` meta, and a "Связанные статьи" block at the bottom (3 deterministic-random related articles, seeded by slug). Blog index injects `Blog` + `BreadcrumbList` JSON-LD. `local_deploy()` also re-runs `scripts/gen_sitemap.py` to write `/var/www/landing/sitemap.xml` — so every cron-published article auto-updates the sitemap. Dependencies: `markdown`, `pyyaml`. |
 | `blog/output/` | Generated HTML (gitignored). Contains `index.html` (listing) + `{slug}/index.html` per article |
 | `blog/PROMPT.md` | Reusable prompt for generating SEO articles with ChatGPT/Claude |
 | `blog/autogen.py` | Auto-generation script: picks next topic from `topics.json`, generates article via OpenRouter (GPT-5.2), saves markdown, builds HTML, deploys locally |
 | `blog/topics.json` | List of 50 SEO topics with `done` flag. Script picks first `done: false` topic |
 | `blog/.env` | Blog-specific env (on server only): `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL` |
+| `scripts/gen_sitemap.py` | Sitemap generator. Reads `blog/posts/*.md` (only `published: true`) + landing + blog index. Writes `sitemap.xml` to `--output` path (default `landing/sitemap.xml`; on server invoked with `--output /var/www/landing/sitemap.xml`). Called from `blog/build.py::local_deploy()`. Owned by `kudinow`. |
+| `infra/Caddyfile` | Source-of-truth copy of `/etc/caddy/Caddyfile` (server config). Edit here, deploy via `scp + validate + reload` — see Landing section. |
+| `docs/seo/` | SEO docs: `SEO_AUDIT_<date>.md` (gap analysis), `INDEXATION_URLS.md` (prioritized queue for manual URL submission to GSC/Я.Вебмастер), `SEO_KEYWORDS.md` (when Phase 2 lands). |
 
 **On server:** `/var/www/landing/blog/` — Caddy serves automatically, no config changes needed.
 
