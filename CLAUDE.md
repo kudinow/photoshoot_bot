@@ -47,6 +47,7 @@ No test suite, linter, or build step exists. Dependencies: `pip install -r requi
 | `bot/services/watermark.py` | Pillow `apply_watermark()` + `save_clean_copy()` / `get_clean_copy()` for first-generation watermarking |
 | `bot/handlers/watermark.py` | `unlock_watermark` callback: idempotent clean-photo delivery if already paid, else starts a 50₽ payment |
 | `bot/handlers/broadcast.py` | Admin broadcasting: `/broadcast` segmented mass messages + `/send USER_ID text` for direct per-user messages |
+| `bot/handlers/support.py` | In-bot two-way support chat: `/support` + `support_open` entry, `InSupportSession` filter relays user text/photo to admin (uid embedded), admin native-Reply routes back, close from either side |
 | `bot/services/yookassa_client.py` | Async wrapper over YooKassa SDK (payment creation + status check via `run_in_executor`) |
 | `bot/services/openai_client.py` | `OpenAIClient` — async prompt generation via OpenRouter (GPT-5.2) |
 | `bot/services/kie_client.py` | `KieClient` — async image transformation via kie.ai. Prod uses `transform_photo_gpt_image_2()` (model `gpt-image-2-image-to-image`, aspect_ratio `3:4`, resolution `2K`). Legacy `transform_photo()` (model `google/nano-banana-edit`) is kept in the file as fallback but not called from any handler. |
@@ -65,6 +66,7 @@ No test suite, linter, or build step exists. Dependencies: `pip install -r requi
 - `generations_log(id, user_id, created_at, gender, style, is_paid)`
 - `broadcasts(id, segment, message_text, total_recipients, sent, blocked, failed, started_at, finished_at)`
 - `ratings(id, user_id, value, created_at)` — каждая клик-оценка 1-5⭐ (для аналитики и ретроспективного просмотра; пишется одновременно с `users.has_rated=1`)
+- `support_sessions(user_id, active, started_at)` — флаг «юзер в активном диалоге с поддержкой» (источник правды для `InSupportSession`; см. раздел In-Bot Support)
 
 On first run, `init_db()` auto-migrates schema (adds columns via idempotent `ALTER TABLE ... ADD COLUMN` wrapped in try/except, creates tables) and migrates legacy JSON data.
 
@@ -181,6 +183,37 @@ On every non-admin user's **first successful generation**, the result is waterma
 **Not in `start.py` regenerate branch** on purpose: `was_first_generation` there is always `False` for non-admin (photo.py increments before save_last_photo) — a hook would be dead code.
 
 **Design docs:** [docs/superpowers/specs/2026-05-29-watermark-unlock-50r-design.md](docs/superpowers/specs/2026-05-29-watermark-unlock-50r-design.md) and [docs/superpowers/plans/2026-05-29-watermark-unlock-50r.md](docs/superpowers/plans/2026-05-29-watermark-unlock-50r.md).
+
+## In-Bot Support
+
+Two-way support chat inside the bot. Users open support, send text/photos; the admin
+receives them in the bot and answers via Telegram's native **Reply** (swipe-reply); either
+side can close the dialog.
+
+**Entry points** (all emit callback `support_open`, plus the `/support` command):
+- `/support` command (always available)
+- `🆘 Поддержка` button in the `/start` welcome (`get_gender_keyboard(with_support=True)`)
+- `🆘 Поддержка` row in `get_restart_keyboard()` (shown after every generation **and** on
+  generation errors, since the error handlers in [bot/handlers/photo.py](bot/handlers/photo.py) reuse that keyboard)
+
+**Session model:** `support_sessions(user_id, active, started_at)` table is the source of
+truth. Helpers `open_support_session` / `close_support_session` / `is_in_support_session`
+in [bot/services/user_limits.py](bot/services/user_limits.py). Survives bot restart.
+
+**Routing:** [bot/handlers/support.py](bot/handlers/support.py) is registered **after
+`start.router` and before `photo.router`** in [bot/main.py](bot/main.py) (photo has a catch-all
+`F.photo`). The `InSupportSession` filter relays an active user's text/photo to `ADMIN_ID`,
+embedding `id <code>{uid}</code>` + a `🆘` marker in the notification. The admin's native
+Reply is routed back by parsing that uid from `reply_to_message` (regex `id\s+(\d+)`, gated
+on the marker) — **no message-mapping table**, robust across restarts. Replies to unmarked
+messages are silently ignored. The user gets a one-time ack on their first message per
+session (tracked via FSM data key `support_acked`).
+
+**Closing:** admin `✅ Завершить диалог` button (`support_close:{uid}`) or user
+`✅ Завершить диалог` button (`support_close_user`). A command (`/...`) sent inside a session
+closes it and asks the user to resend the command. Admin (`ADMIN_ID`) cannot open a session.
+
+**Design docs:** [docs/superpowers/specs/2026-05-29-in-bot-support-design.md](docs/superpowers/specs/2026-05-29-in-bot-support-design.md) and [docs/superpowers/plans/2026-05-29-in-bot-support.md](docs/superpowers/plans/2026-05-29-in-bot-support.md).
 
 ## Landing Page
 

@@ -4,16 +4,19 @@ from bot.config import CREDIT_PACKAGES
 from bot.services.user_limits import SEGMENT_LABELS, get_segment_count
 
 
-def get_gender_keyboard() -> InlineKeyboardMarkup:
-    """Клавиатура выбора пола"""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="👨 Мужской", callback_data="gender:male"),
-                InlineKeyboardButton(text="👩 Женский", callback_data="gender:female"),
-            ]
+def get_gender_keyboard(with_support: bool = False) -> InlineKeyboardMarkup:
+    """Клавиатура выбора пола (опционально с кнопкой поддержки)"""
+    rows = [
+        [
+            InlineKeyboardButton(text="👨 Мужской", callback_data="gender:male"),
+            InlineKeyboardButton(text="👩 Женский", callback_data="gender:female"),
         ]
-    )
+    ]
+    if with_support:
+        rows.append([
+            InlineKeyboardButton(text="🆘 Поддержка", callback_data="support_open"),
+        ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def get_style_keyboard() -> InlineKeyboardMarkup:
@@ -53,6 +56,10 @@ def get_restart_keyboard(
         buttons.append([
             InlineKeyboardButton(text="💳 Купить генерации", callback_data="buy_credits"),
         ])
+
+    buttons.append([
+        InlineKeyboardButton(text="🆘 Поддержка", callback_data="support_open"),
+    ])
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -223,6 +230,30 @@ def get_test_restart_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="🔁 Ещё тест", callback_data="test_gpt_restart")],
+        ]
+    )
+
+
+def get_support_invite_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура приглашения в саппорт (кнопка завершения для юзера)"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(
+                text="✅ Завершить диалог",
+                callback_data="support_close_user",
+            )]
+        ]
+    )
+
+
+def get_support_admin_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    """Клавиатура под уведомлением саппорта у админа (завершить диалог с юзером)"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(
+                text="✅ Завершить диалог",
+                callback_data=f"support_close:{user_id}",
+            )]
         ]
     )
 

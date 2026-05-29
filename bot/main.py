@@ -8,7 +8,9 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from bot.config import settings
-from bot.handlers import admin_test, broadcast, payment, photo, rating, start, watermark
+from bot.handlers import (
+    admin_test, broadcast, payment, photo, rating, start, support, watermark,
+)
 from bot.services.user_limits import init_db
 
 
@@ -41,6 +43,8 @@ async def main() -> None:
 
     # Регистрируем роутеры
     dp.include_router(start.router)
+    # support ДО photo: InSupportSession перехватывает текст/фото активной сессии
+    dp.include_router(support.router)
     dp.include_router(broadcast.router)
     dp.include_router(payment.router)
     dp.include_router(rating.router)
