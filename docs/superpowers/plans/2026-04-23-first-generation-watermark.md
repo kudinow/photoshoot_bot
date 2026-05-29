@@ -1,5 +1,7 @@
 # First-Generation Watermark Implementation Plan
 
+> ⚠️ **SUPERSEDED (2026-05-29)** — the unlock mechanic changed to a dedicated 50₽ micro-payment with auto-delivery. A new plan supersedes this one. See [docs/superpowers/specs/2026-05-29-watermark-unlock-50r-design.md](../specs/2026-05-29-watermark-unlock-50r-design.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Watermark every user's first free generation with `ai-photobot.ru` diagonally, unlock clean version via explicit button after any confirmed payment.

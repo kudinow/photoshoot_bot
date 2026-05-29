@@ -1,7 +1,9 @@
 # First-Generation Watermark — Design Spec
 
+> ⚠️ **SUPERSEDED (2026-05-29)** by [2026-05-29-watermark-unlock-50r-design.md](2026-05-29-watermark-unlock-50r-design.md). The unlock mechanic changed: instead of "buy any package + click button", the user pays a dedicated **50₽** and the bot auto-sends the clean photo. Watermark rendering/storage/scope below are still accurate; the unlock flow is not. Use the new spec.
+
 **Date:** 2026-04-23
-**Status:** Approved, pending implementation plan
+**Status:** Superseded
 **Topic:** Monetization driver — watermark on first free generation, removable via payment + explicit button.
 
 ## Goal
