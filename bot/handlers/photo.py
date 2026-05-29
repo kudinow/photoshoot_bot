@@ -15,10 +15,12 @@ from bot.services.user_limits import (
     has_free_generations,
     has_user_rated,
     increment_generations,
+    is_admin,
     log_generation,
     reward_referrer,
     save_last_photo,
 )
+from bot.services.watermark import apply_watermark, save_clean_copy
 from bot.states.generation import GenerationStates
 
 logger = logging.getLogger(__name__)
@@ -105,11 +107,24 @@ async def handle_photo(
         # Скачиваем результат
         result_image = await kie_client.download_image(result_url)
 
+        # Водяной знак на первой бесплатной генерации (кроме админа)
+        was_first_generation = get_generations_count(user_id) == 0
+        watermarked = False
+        if was_first_generation and not is_admin(user_id):
+            try:
+                save_clean_copy(user_id, result_image)
+                result_image = apply_watermark(result_image)
+                watermarked = True
+            except Exception as e:
+                logger.error(
+                    f"Watermark failed for user {user_id}: {e}"
+                )
+                # Soft degradation: шлём чистое фото без кнопки разблокировки
+
         # Удаляем сообщение о обработке
         await processing_msg.delete()
 
         # Увеличиваем счётчик генераций
-        was_first_generation = get_generations_count(user_id) == 0
         is_paid = not has_free_generations(user_id)
         increment_generations(user_id)
         log_generation(user_id, gender, style, is_paid)
@@ -142,7 +157,12 @@ async def handle_photo(
 
         # Формируем caption с информацией об оставшихся генерациях
         remaining_after = get_remaining_generations(user_id)
-        if remaining_after == -1:
+        if watermarked:
+            caption = (
+                "Готово! Но фото пока с водяным знаком.\n\n"
+                "Чистую версию без знака можно забрать за 50 ₽ 👇"
+            )
+        elif remaining_after == -1:
             caption = "Готово! Вот твой профессиональный портрет."
         elif remaining_after > 0:
             caption = (
@@ -165,6 +185,7 @@ async def handle_photo(
             reply_markup=get_restart_keyboard(
                 has_last_photo=True,
                 has_credits=(remaining_after != 0),
+                has_watermarked=watermarked,
             ),
         )
 
