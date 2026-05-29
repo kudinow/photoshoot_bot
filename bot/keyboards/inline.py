@@ -28,10 +28,17 @@ def get_style_keyboard() -> InlineKeyboardMarkup:
 
 
 def get_restart_keyboard(
-    has_last_photo: bool = False, has_credits: bool = True
+    has_last_photo: bool = False,
+    has_credits: bool = True,
+    has_watermarked: bool = False,
 ) -> InlineKeyboardMarkup:
     """Клавиатура для повторной генерации"""
     buttons = []
+
+    if has_watermarked:
+        buttons.append([
+            InlineKeyboardButton(text="🔓 Убрать знак — 50 ₽", callback_data="unlock_watermark"),
+        ])
 
     if has_last_photo:
         buttons.append([
