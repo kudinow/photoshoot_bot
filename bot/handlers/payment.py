@@ -3,9 +3,9 @@ import logging
 
 from aiogram import Bot, F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery
+from aiogram.types import BufferedInputFile, CallbackQuery
 
-from bot.config import CREDIT_PACKAGES, get_package_by_id
+from bot.config import CREDIT_PACKAGES, WATERMARK_UNLOCK_ID, get_package_by_id
 from bot.keyboards.inline import (
     get_after_payment_keyboard,
     get_confirm_package_keyboard,
@@ -23,6 +23,7 @@ from bot.services.user_limits import (
     get_remaining_generations,
     update_payment_provider_id,
 )
+from bot.services.watermark import get_clean_copy
 from bot.services.yookassa_client import (
     check_yookassa_payment,
     create_yookassa_payment,
@@ -231,16 +232,23 @@ async def check_payment_status(callback: CallbackQuery) -> None:
     if status == "succeeded":
         success = confirm_payment(internal_id)
         if success and pkg:
-            remaining = get_remaining_generations(user_id)
-            await callback.message.edit_text(
-                f"✅ <b>Оплата прошла успешно!</b>\n\n"
-                f"Начислено: <b>{pkg.credits} генераций</b>\n"
-                f"Доступно генераций: "
-                f"<b>{remaining}</b>\n\n"
-                f"Теперь можешь создать "
-                f"профессиональный портрет!",
-                reply_markup=get_after_payment_keyboard(),
-            )
+            if pkg.id == WATERMARK_UNLOCK_ID:
+                await callback.message.edit_text(
+                    "✅ <b>Оплата прошла успешно!</b>\n\n"
+                    "Сейчас пришлю фото без водяного знака 👇"
+                )
+                await _deliver_after_payment(callback.bot, user_id, pkg)
+            else:
+                remaining = get_remaining_generations(user_id)
+                await callback.message.edit_text(
+                    f"✅ <b>Оплата прошла успешно!</b>\n\n"
+                    f"Начислено: <b>{pkg.credits} генераций</b>\n"
+                    f"Доступно генераций: "
+                    f"<b>{remaining}</b>\n\n"
+                    f"Теперь можешь создать "
+                    f"профессиональный портрет!",
+                    reply_markup=get_after_payment_keyboard(),
+                )
             logger.info(
                 f"User {user_id}: manual check confirmed "
                 f"payment {internal_id}"
@@ -316,26 +324,11 @@ async def _poll_payment(
         if status == "succeeded":
             success = confirm_payment(internal_id)
             if success:
-                remaining = get_remaining_generations(user_id)
                 try:
-                    await bot.send_message(
-                        user_id,
-                        f"✅ <b>Оплата прошла успешно!</b>"
-                        f"\n\n"
-                        f"Начислено: "
-                        f"<b>{pkg.credits} генераций</b>\n"
-                        f"Доступно генераций: "
-                        f"<b>{remaining}</b>\n\n"
-                        f"Нажми кнопку ниже, чтобы "
-                        f"создать фото!",
-                        reply_markup=(
-                            get_after_payment_keyboard()
-                        ),
-                    )
+                    await _deliver_after_payment(bot, user_id, pkg)
                 except Exception as e:
                     logger.error(
-                        f"Failed to notify user "
-                        f"{user_id}: {e}"
+                        f"Failed to deliver to user {user_id}: {e}"
                     )
                 logger.info(
                     f"Poll: payment {internal_id} "
@@ -372,6 +365,40 @@ async def _poll_payment(
         )
 
 
+async def _deliver_after_payment(bot: Bot, user_id: int, pkg) -> None:
+    """Доставка результата после подтверждённой оплаты.
+
+    Для пакета снятия водяного знака — присылает чистое фото.
+    Для обычных пакетов — сообщение о начислении генераций.
+    """
+    if pkg.id == WATERMARK_UNLOCK_ID:
+        clean = get_clean_copy(user_id)
+        if clean:
+            await bot.send_photo(
+                user_id,
+                BufferedInputFile(clean, filename="studio_portrait.jpg"),
+                caption="🎁 Готово! Вот твоё фото без водяного знака.",
+            )
+        else:
+            await bot.send_message(
+                user_id,
+                "Оплата прошла, но чистая версия не найдена 😔\n"
+                "Напиши в поддержку — поможем.",
+            )
+        return
+
+    # Обычный пакет
+    remaining = get_remaining_generations(user_id)
+    await bot.send_message(
+        user_id,
+        f"✅ <b>Оплата прошла успешно!</b>\n\n"
+        f"Начислено: <b>{pkg.credits} генераций</b>\n"
+        f"Доступно генераций: <b>{remaining}</b>\n\n"
+        f"Нажми кнопку ниже, чтобы создать фото!",
+        reply_markup=get_after_payment_keyboard(),
+    )
+
+
 async def _notify_admin_payment(
     bot: Bot, user_id: int, user, pkg
 ) -> None:
@@ -383,13 +410,18 @@ async def _notify_admin_payment(
         name = ""
         username = ""
 
+    if pkg.id == WATERMARK_UNLOCK_ID:
+        detail = f"Снятие водяного знака за {pkg.price_rub} ₽"
+    else:
+        detail = f"Пакет: {pkg.credits} генераций за {pkg.price_rub} ₽"
+
     try:
         await bot.send_message(
             ADMIN_ID,
             f"💰 Оплата!\n"
             f"Пользователь: {name}{username}\n"
             f"ID: {user_id}\n"
-            f"Пакет: {pkg.credits} генераций за {pkg.price_rub} ₽",
+            f"{detail}",
         )
     except Exception as e:
         logger.error(f"Failed to notify admin about payment: {e}")
