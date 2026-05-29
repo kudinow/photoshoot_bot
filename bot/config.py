@@ -77,8 +77,23 @@ CREDIT_PACKAGES: tuple[CreditPackage, ...] = (
 )
 
 
+# Спец-«пакет» для снятия водяного знака (50₽, 0 кредитов).
+# НЕ входит в CREDIT_PACKAGES — не показывается в меню покупки.
+WATERMARK_UNLOCK_ID = "watermark_unlock"
+
+WATERMARK_UNLOCK = CreditPackage(
+    id=WATERMARK_UNLOCK_ID,
+    credits=0,
+    price_rub=50,
+    price_kopecks=5000,
+    label="Фото без водяного знака — 50 ₽",
+)
+
+
 def get_package_by_id(package_id: str) -> CreditPackage | None:
-    """Возвращает пакет по его ID"""
+    """Возвращает пакет по его ID (включая спец-пакет снятия водяного знака)"""
+    if package_id == WATERMARK_UNLOCK_ID:
+        return WATERMARK_UNLOCK
     for pkg in CREDIT_PACKAGES:
         if pkg.id == package_id:
             return pkg
