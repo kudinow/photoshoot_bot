@@ -214,6 +214,15 @@ def init_db() -> None:
             )
         """)
 
+        # Таблица сессий поддержки (юзер в активном диалоге с саппортом)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS support_sessions (
+                user_id INTEGER PRIMARY KEY,
+                active INTEGER NOT NULL DEFAULT 0,
+                started_at TEXT
+            )
+        """)
+
     # Миграция из JSON
     json_path = _get_json_path()
     if json_path.exists():
@@ -287,6 +296,37 @@ def log_generation(
 def is_admin(user_id: int) -> bool:
     """Проверяет, является ли пользователь админом"""
     return user_id == ADMIN_ID
+
+
+def open_support_session(user_id: int) -> None:
+    """Открывает (или переоткрывает) сессию поддержки для пользователя"""
+    with _get_conn() as conn:
+        conn.execute(
+            """INSERT INTO support_sessions (user_id, active, started_at)
+               VALUES (?, 1, datetime('now'))
+               ON CONFLICT(user_id) DO UPDATE SET
+                   active = 1, started_at = datetime('now')""",
+            (user_id,),
+        )
+
+
+def close_support_session(user_id: int) -> None:
+    """Закрывает сессию поддержки для пользователя"""
+    with _get_conn() as conn:
+        conn.execute(
+            "UPDATE support_sessions SET active = 0 WHERE user_id = ?",
+            (user_id,),
+        )
+
+
+def is_in_support_session(user_id: int) -> bool:
+    """Проверяет, находится ли пользователь в активной сессии поддержки"""
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT active FROM support_sessions WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+    return bool(row and row[0])
 
 
 def is_new_user(user_id: int) -> bool:
