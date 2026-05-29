@@ -589,6 +589,18 @@ def get_pending_payment_by_provider_id(
     return dict(row) if row else None
 
 
+def has_unlocked_watermark(user_id: int) -> bool:
+    """True, если у юзера есть подтверждённый платёж за снятие водяного знака."""
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM payments "
+            "WHERE user_id = ? AND package_id = ? AND status = 'confirmed' "
+            "LIMIT 1",
+            (user_id, "watermark_unlock"),
+        ).fetchone()
+    return row is not None
+
+
 # --- Реферальная статистика ---
 
 
