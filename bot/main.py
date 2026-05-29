@@ -8,7 +8,7 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from bot.config import settings
-from bot.handlers import admin_test, broadcast, payment, photo, rating, start
+from bot.handlers import admin_test, broadcast, payment, photo, rating, start, watermark
 from bot.services.user_limits import init_db
 
 
@@ -44,6 +44,7 @@ async def main() -> None:
     dp.include_router(broadcast.router)
     dp.include_router(payment.router)
     dp.include_router(rating.router)
+    dp.include_router(watermark.router)
     # admin_test ДО photo: photo.router имеет catch-all F.photo без FSM-фильтра
     dp.include_router(admin_test.router)
     dp.include_router(photo.router)
