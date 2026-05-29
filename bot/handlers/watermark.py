@@ -14,6 +14,7 @@ from bot.keyboards.inline import get_payment_url_keyboard
 from bot.services.user_limits import (
     cancel_payment,
     create_payment,
+    has_pending_unlock_payment,
     has_unlocked_watermark,
     update_payment_provider_id,
 )
@@ -45,6 +46,15 @@ async def handle_unlock_watermark(
                 clean_bytes, filename="studio_portrait.jpg"
             ),
             caption="🎁 Готово! Вот твоё фото без водяного знака.",
+        )
+        return
+
+    # Защита от двойного списания: уже есть незавершённый платёж — не создаём второй
+    if has_pending_unlock_payment(user_id):
+        await callback.message.answer(
+            "💳 У тебя уже есть незавершённая оплата на 50 ₽ — заверши её 👆\n"
+            "Чистое фото придёт автоматически после оплаты.\n"
+            "Если ссылка потерялась — подожди пару минут и нажми кнопку снова."
         )
         return
 

@@ -601,6 +601,22 @@ def has_unlocked_watermark(user_id: int) -> bool:
     return row is not None
 
 
+def has_pending_unlock_payment(user_id: int) -> bool:
+    """True, если у юзера есть незавершённый (pending) платёж за снятие знака.
+
+    Защита от двойного списания: повторный тап по кнопке не должен
+    создавать второй платёж, пока первый ещё не оплачен/не отменён.
+    """
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM payments "
+            "WHERE user_id = ? AND package_id = ? AND status = 'pending' "
+            "LIMIT 1",
+            (user_id, "watermark_unlock"),
+        ).fetchone()
+    return row is not None
+
+
 # --- Реферальная статистика ---
 
 
