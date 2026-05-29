@@ -103,7 +103,7 @@ async def cmd_start(message: Message, state: FSMContext, command: CommandObject)
     )
 
     await message.answer(
-        welcome_text, reply_markup=get_gender_keyboard()
+        welcome_text, reply_markup=get_gender_keyboard(with_support=True)
     )
     await state.set_state(GenerationStates.selecting_gender)
 
