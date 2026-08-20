@@ -1,6 +1,7 @@
 import asyncio
 import logging
 
+import httpx
 from openai import AsyncOpenAI
 
 from bot.config import (
@@ -9,6 +10,7 @@ from bot.config import (
     build_system_prompt,
     settings,
 )
+from bot.services.prompt_fallback import build_local_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -25,10 +27,25 @@ class OpenAIClient:
     Совместим с OpenAI SDK.
     """
 
+    # Таймаут одного запроса к OpenRouter (сек)
+    REQUEST_TIMEOUT = 60.0
+
     def __init__(self) -> None:
+        http_client = None
+        if settings.openrouter_proxy:
+            logger.info(
+                "OpenRouter goes through proxy "
+                f"{self._mask_proxy(settings.openrouter_proxy)}"
+            )
+            http_client = httpx.AsyncClient(
+                proxy=settings.openrouter_proxy,
+                timeout=self.REQUEST_TIMEOUT,
+            )
+
         self.client = AsyncOpenAI(
             api_key=settings.openrouter_api_key,
             base_url=settings.openrouter_base_url,
+            http_client=http_client,
         )
         # OpenRouter использует тот же формат модели
         # GPT-5.2 для максимального качества генерации промптов
@@ -108,13 +125,27 @@ class OpenAIClient:
                     # Exponential backoff: 1s, 2s, 4s
                     await asyncio.sleep(2 ** attempt)
 
+        # LLM недоступен (например, Cloudflare режет IP сервера) —
+        # не роняем генерацию, а собираем промпт локально.
         logger.error(
             f"OpenAI API failed after {max_retries} attempts: "
-            f"{last_error}"
+            f"{last_error}. Falling back to local prompt builder."
         )
-        raise OpenAIClientError(
-            f"Ошибка генерации промпта: {last_error}"
-        ) from last_error
+        local_prompt = build_local_prompt(gender, style)
+        logger.warning(
+            f"Using LOCAL fallback prompt for {gender}/{style}: "
+            f"{local_prompt[:100]}..."
+        )
+        return local_prompt + PROMPT_CRITICAL_SUFFIX
+
+    @staticmethod
+    def _mask_proxy(proxy_url: str) -> str:
+        """Прячет логин/пароль прокси перед записью в лог"""
+        if "@" not in proxy_url:
+            return proxy_url
+        scheme, _, rest = proxy_url.partition("://")
+        host = rest.rpartition("@")[2]
+        return f"{scheme}://***@{host}"
 
 
 openai_client = OpenAIClient()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Optional
 
 from pydantic_settings import BaseSettings
 from yookassa import Configuration as YooKassaConfiguration
@@ -17,6 +18,10 @@ class Settings(BaseSettings):
     # OpenRouter (замена OpenAI для работы из РФ)
     openrouter_api_key: str
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    # Прокси для OpenRouter: Cloudflare отдаёт 403 на IP сервера (РФ).
+    # Формат: http://user:pass@host:port или socks5://host:port
+    # (для socks5 нужен пакет httpx[socks]). Пусто = ходить напрямую.
+    openrouter_proxy: Optional[str] = None
 
     # YooKassa
     yookassa_shop_id: str
