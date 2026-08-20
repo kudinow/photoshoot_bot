@@ -225,8 +225,8 @@ async def regenerate_photo(
             f"length: {len(prompt)}"
         )
 
-        # Отправляем в kie.ai (GPT Image 2) и ждём результат
-        result_url = await kie_client.transform_photo_gpt_image_2(
+        # Отправляем в kie.ai (Nano Banana, google/nano-banana-edit) и ждём результат
+        result_url = await kie_client.transform_photo(
             image_url=photo_url,
             prompt=prompt,
         )

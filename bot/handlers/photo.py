@@ -96,10 +96,10 @@ async def handle_photo(
             f"file_path: {file.file_path}"
         )
 
-        # Отправляем в kie.ai (GPT Image 2) и ждём результат.
-        # Старый метод transform_photo() для nano-banana оставлен в kie_client
+        # Отправляем в kie.ai (Nano Banana, google/nano-banana-edit) и ждём результат.
+        # Метод transform_photo_gpt_image_2() для GPT Image 2 оставлен в kie_client
         # как fallback, но не используется в проде.
-        result_url = await kie_client.transform_photo_gpt_image_2(
+        result_url = await kie_client.transform_photo(
             image_url=file_url,
             prompt=prompt,
         )
