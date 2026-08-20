@@ -9,8 +9,10 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 from bot.config import settings
 from bot.handlers import (
-    admin_test, broadcast, payment, photo, rating, start, support, watermark,
+    admin_test, broadcast, payment, photo, rating, receipts, start, support,
+    watermark,
 )
+from bot.services.npd_receipts import retry_pending_receipts
 from bot.services.user_limits import init_db
 
 
@@ -47,6 +49,7 @@ async def main() -> None:
     dp.include_router(support.router)
     dp.include_router(broadcast.router)
     dp.include_router(payment.router)
+    dp.include_router(receipts.router)
     dp.include_router(rating.router)
     dp.include_router(watermark.router)
     # admin_test ДО photo: photo.router имеет catch-all F.photo без FSM-фильтра
@@ -56,6 +59,8 @@ async def main() -> None:
     # Запускаем бота
     try:
         logger.info("Bot started successfully!")
+        # Добиваем чеки, не пробитые до рестарта
+        asyncio.create_task(retry_pending_receipts(bot))
         await dp.start_polling(bot)
     finally:
         await bot.session.close()
