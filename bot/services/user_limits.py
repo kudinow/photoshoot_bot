@@ -44,6 +44,15 @@ def _get_conn() -> sqlite3.Connection:
     return sqlite3.connect(_get_db_path())
 
 
+def get_conn() -> sqlite3.Connection:
+    """Публичный алиас _get_conn для других сервисных модулей.
+
+    Namespace БД общий, но запросы по своим таблицам живут в своих модулях —
+    user_limits.py уже 859 строк.
+    """
+    return _get_conn()
+
+
 def init_db() -> None:
     """Инициализирует БД и мигрирует данные из JSON, если он существует"""
     with _get_conn() as conn:
@@ -220,6 +229,24 @@ def init_db() -> None:
                 user_id INTEGER PRIMARY KEY,
                 active INTEGER NOT NULL DEFAULT 0,
                 started_at TEXT
+            )
+        """)
+
+        # Чеки НПД («Мой налог») — очередь фискализации платежей
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS npd_receipts (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                payment_id    INTEGER NOT NULL UNIQUE,
+                user_id       INTEGER NOT NULL,
+                amount        INTEGER NOT NULL,
+                service_name  TEXT    NOT NULL,
+                status        TEXT    NOT NULL DEFAULT 'pending',
+                receipt_uuid  TEXT,
+                print_url     TEXT,
+                attempts      INTEGER NOT NULL DEFAULT 0,
+                last_error    TEXT,
+                created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+                updated_at    TEXT    NOT NULL DEFAULT (datetime('now'))
             )
         """)
 
