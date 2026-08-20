@@ -189,7 +189,8 @@ Delicate jewelry: gold or silver studs, small hoops, simple pendant necklaces (e
 Thin chain necklaces, dainty bracelets
 Simple watch, minimal rings
 Small scarves (optional)
-NEVER add glasses if not in original photo
+If the person wears glasses in the original photo, KEEP the glasses on — same frame shape, color, thickness and position, unchanged
+NEVER add glasses if they are not in the original photo
 
 Hair: Keep original hairstyle from photo - only minor grooming improvements allowed
 Makeup: Fresh, minimal — neutral tones, soft blush, natural lips, barely-there look
@@ -238,7 +239,8 @@ Thermal cotton, brushed cotton
 Accessories (minimal, vary):
 
 Simple watch, thin chain (optional), minimal ring
-NEVER add glasses if not in original photo
+If the person wears glasses in the original photo, KEEP the glasses on — same frame shape, color, thickness and position, unchanged
+NEVER add glasses if they are not in the original photo
 NO facial accessories unless present in original
 Casual belt (if showing waist)
 
@@ -294,7 +296,8 @@ Pearl earrings: studs or small drops, classic and refined
 Gold or silver earrings: small hoops, geometric studs
 Delicate pendant necklaces, thin chains
 Structured watch, minimal bracelet
-NEVER add glasses if not in original photo
+If the person wears glasses in the original photo, KEEP the glasses on — same frame shape, color, thickness and position, unchanged
+NEVER add glasses if they are not in the original photo
 
 Hair: Keep original hairstyle from photo - only minor grooming improvements allowed
 Makeup: Polished professional — defined brows, subtle contour, neutral lip or soft berry tone
@@ -347,7 +350,8 @@ Classic watch: leather strap or metal bracelet
 Cufflinks (with French cuff shirts)
 Pocket square: neatly folded, subtle
 Tie bar/clip (optional, minimal)
-NEVER add glasses if not in original photo
+If the person wears glasses in the original photo, KEEP the glasses on — same frame shape, color, thickness and position, unchanged
+NEVER add glasses if they are not in the original photo
 NO facial accessories unless present in original
 
 Hair: Keep original hairstyle from photo - only minor grooming improvements allowed
@@ -405,7 +409,8 @@ Architectural earrings: geometric, sculptural, oversized but tasteful
 Layered necklaces: mixed metals, varying lengths
 Stacked rings, statement cuff bracelets
 Unusual materials: ceramic, wood, resin jewelry
-NEVER add glasses if not in original photo
+If the person wears glasses in the original photo, KEEP the glasses on — same frame shape, color, thickness and position, unchanged
+NEVER add glasses if they are not in the original photo
 
 Hair: Keep original hairstyle from photo - only minor grooming improvements allowed
 Makeup: Artistic yet polished — bold brow, sculpted cheekbones, statement lip OR dramatic eye (never both)
@@ -460,7 +465,8 @@ Architectural watch: modern design, unusual dial
 Minimal rings: signet, geometric, matte metal
 Thin chain or leather cord necklace
 Woven or leather bracelets
-NEVER add glasses if not in original photo
+If the person wears glasses in the original photo, KEEP the glasses on — same frame shape, color, thickness and position, unchanged
+NEVER add glasses if they are not in the original photo
 NO facial accessories unless present in original
 
 Hair: Keep original hairstyle from photo - only minor grooming improvements allowed
@@ -492,7 +498,7 @@ Create UNIQUE combinations — never repeat the same outfit formula
 Think creatively about layering and style variations
 
 Universal Prompt Template
-[Subject] professional studio portrait of a [age/descriptor] [man/woman] wearing [specific VARIED garment in DIFFERENT color from expanded palette]. Direct eye contact with camera, [expression]. [Lighting setup], even illumination with subtle dimension. [Styling details: accessories, grooming - VARY THESE, but NEVER change hairstyle or add glasses if not in original]. [Background - VARY] seamless backdrop, slightly blurred. Professional headshot style, [framing: chest-up/head-and-shoulders], shallow depth of field, contemporary photography."""
+[Subject] professional studio portrait of a [age/descriptor] [man/woman] wearing [specific VARIED garment in DIFFERENT color from expanded palette]. Direct eye contact with camera, [expression]. [Lighting setup], even illumination with subtle dimension. [Styling details: accessories, grooming - VARY THESE, but NEVER change hairstyle, NEVER add glasses if not in original, and ALWAYS keep the original glasses if the person wears them]. [Background - VARY] seamless backdrop, slightly blurred. Professional headshot style, [framing: chest-up/head-and-shoulders], shallow depth of field, contemporary photography."""
 
 # Словарь стилей для быстрого доступа
 STYLE_PROMPTS: dict[tuple[str, str], str] = {
@@ -521,6 +527,7 @@ def build_system_prompt(gender: str, style: str) -> str:
 PROMPT_CRITICAL_SUFFIX = """CRITICAL FACE AND APPEARANCE PRESERVATION REQUIREMENTS:
 Preserve the exact facial features, face shape, skin tone, eye color, hair color, hairstyle, and all unique characteristics from the original photo. Do not alter, enhance, beautify, or modify the face in any way. Never change eye color or hair color under any circumstances. Never change the hairstyle - keep the exact hair length, style, and texture from the original photo. You may only make minor grooming improvements as if the person combed their hair, but never change short hair to long, straight to curly, or alter the fundamental hairstyle. If a man has short hair, keep it short. If a woman has long hair, keep it long. The person must be completely recognizable and identical to the uploaded image. Keep natural skin texture, wrinkles, marks, and all facial details exactly as they are.
 Never add glasses or any facial accessories if they are not present in the original photo. For women, earrings may be added as the only acceptable facial accessory. For men, no facial accessories should be added at all if not present in the original.
+EYEGLASSES RULE (CRITICAL): if the person is wearing glasses in the original photo, the glasses MUST remain on the face in the result, reproduced exactly — identical frame shape, rim style (full-rim, half-rim or rimless), frame color and material, thickness, size and position on the nose. Never remove the glasses, never swap them for a different model, never turn them into sunglasses. Render the lenses realistically: clear and transparent, eyes fully visible through them, with only subtle studio reflections and no heavy glare hiding the eyes.
 
 PHOTOREALISM IS MANDATORY:
 The final image must look like a real photograph from a professional studio photoshoot, NOT an AI-generated or digitally painted image. Maintain all natural skin imperfections — pores, fine lines, subtle blemishes, natural skin redness. Skin must have realistic subsurface scattering and specular highlights, never appear plastic, waxy, or airbrushed. Hair must show individual strands, natural flyaways, and realistic shine. Clothing fabric must have natural wrinkles, creases, and realistic texture. The overall image must have the quality and feel of a RAW photo processed in Lightroom — natural color science, subtle grain, realistic micro-contrast. Absolutely no CGI, 3D render, illustration, or digitally painted appearance."""
