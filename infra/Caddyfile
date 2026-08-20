@@ -1,0 +1,31 @@
+ai-photobot.ru {
+	# Admin dashboard with basic auth
+	handle /dash/* {
+		basic_auth {
+			admin $2a$14$Un1yCvAfWglmdYW1FVCWIuUdRb19Ate1IgI.RpxlmwqAU6D36rIw.
+		}
+		root * /var/www/landing
+		file_server
+	}
+
+	# Long cache for immutable static assets (images, fonts, etc.)
+	@static {
+		path *.css *.js *.png *.jpg *.jpeg *.webp *.gif *.svg *.ico *.woff *.woff2 *.ttf
+	}
+	header @static Cache-Control "public, max-age=31536000, immutable"
+
+	# Sitemap / robots — short cache, allows updates to propagate quickly
+	@seo_files {
+		path /sitemap.xml /robots.txt
+	}
+	header @seo_files Cache-Control "public, max-age=3600"
+
+	root * /var/www/landing
+	file_server
+	encode zstd gzip
+}
+
+# Redirect www → apex
+www.ai-photobot.ru {
+	redir https://ai-photobot.ru{uri} permanent
+}
