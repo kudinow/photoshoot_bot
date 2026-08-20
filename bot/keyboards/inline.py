@@ -273,3 +273,15 @@ def get_five_star_keyboard() -> InlineKeyboardMarkup:
             ]
         ]
     )
+
+
+def get_receipt_keyboard(print_url: str) -> InlineKeyboardMarkup:
+    """Кнопка со ссылкой на чек НПД"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(
+                text="🧾 Открыть чек",
+                url=print_url,
+            )],
+        ]
+    )
