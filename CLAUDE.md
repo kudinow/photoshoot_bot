@@ -46,6 +46,11 @@ No test suite, linter, or build step exists. Dependencies: `pip install -r requi
 | `bot/handlers/rating.py` | Generation rating flow: star-click callbacks, low-rating admin forwarding (two-stage: photos + optional text), 5-star referral link surfacing, non-text catch-all in feedback state |
 | `bot/services/watermark.py` | Pillow `apply_watermark()` + `save_clean_copy()` / `get_clean_copy()` for first-generation watermarking |
 | `bot/handlers/watermark.py` | `unlock_watermark` callback: idempotent clean-photo delivery if already paid, else starts a 50₽ payment |
+| `bot/services/npd_payload.py` | Чистые хелперы чеков НПД: тело запроса `/income`, `print_url`, backoff, протухание токена. Ничего не импортирует из `bot.config` — тесты бегут без `.env` |
+| `bot/services/npd_client.py` | `NpdClient` — async-клиент `lknpd.nalog.ru`: вход по ИНН+паролю, refresh, `add_income()` |
+| `bot/services/npd_storage.py` | CRUD по таблице `npd_receipts` (очередь фискализации) |
+| `bot/services/npd_receipts.py` | Оркестрация чеков: очередь, ретраи, ссылка юзеру, алерт админу, sweep на старте |
+| `bot/handlers/receipts.py` | Админские `/receipts_failed` и `/receipts_retry` |
 | `bot/handlers/broadcast.py` | Admin broadcasting: `/broadcast` segmented mass messages + `/send USER_ID text` for direct per-user messages |
 | `bot/handlers/support.py` | In-bot two-way support chat: `/support` + `support_open` entry, `InSupportSession` filter relays user text/photo to admin (uid embedded), admin native-Reply routes back, close from either side |
 | `bot/services/yookassa_client.py` | Async wrapper over YooKassa SDK (payment creation + status check via `run_in_executor`) |
@@ -66,6 +71,7 @@ No test suite, linter, or build step exists. Dependencies: `pip install -r requi
 - `generations_log(id, user_id, created_at, gender, style, is_paid)`
 - `broadcasts(id, segment, message_text, total_recipients, sent, blocked, failed, started_at, finished_at)`
 - `ratings(id, user_id, value, created_at)` — каждая клик-оценка 1-5⭐ (для аналитики и ретроспективного просмотра; пишется одновременно с `users.has_rated=1`)
+- `npd_receipts(id, payment_id UNIQUE, user_id, amount, service_name, status, receipt_uuid, print_url, attempts, last_error, created_at, updated_at)` — очередь фискализации НПД. `payment_id UNIQUE` защищает от двойного пробития при гонке polling'а с ручной кнопкой «Проверить оплату»
 - `support_sessions(user_id, active, started_at)` — флаг «юзер в активном диалоге с поддержкой» (источник правды для `InSupportSession`; см. раздел In-Bot Support)
 
 On first run, `init_db()` auto-migrates schema (adds columns via idempotent `ALTER TABLE ... ADD COLUMN` wrapped in try/except, creates tables) and migrates legacy JSON data.
@@ -79,6 +85,9 @@ Configured via `.env` (see `.env.example`):
 - `OPENROUTER_PROXY` — optional proxy for OpenRouter (`http://user:pass@host:port` or `socks5://host:port`; socks5 needs `pip install httpx[socks]`). Empty = direct connection. **Currently required in prod**: Cloudflare returns 403 to the server's Russian IP — see "LLM Prompt Generation & Fallback" below
 - `YOOKASSA_SHOP_ID`, `YOOKASSA_SECRET_KEY` — YooKassa payment credentials
 - `YOOKASSA_RETURN_URL` — deep link back to bot after payment (default: `https://t.me/photoshoot_generator_bot`)
+- `NPD_ENABLED` — фича-флаг автоматических чеков НПД (по умолчанию `false`)
+- `NPD_INN`, `NPD_PASSWORD` — ИНН и пароль от `lknpd.nalog.ru` (вход **по ИНН**, не по SMS)
+- `NPD_DEVICE_ID` — стабильный `sourceDeviceId`; токен ФНС привязан к нему, менять между рестартами нельзя
 - `DEBUG` — enables DEBUG-level logging
 
 ## Key Constants
@@ -119,6 +128,44 @@ Step 1 of every generation is building a style-aware prompt via OpenRouter (GPT-
 **Credit consumption order:** Free generations first, then paid credits. `can_generate()` checks both pools. `increment_generations()` deducts from the correct pool automatically.
 
 **Caveat:** Callback buttons on photo messages cannot use `edit_text()` — only `edit_caption()` or sending a new message. The `show_packages` handler detects this via `callback.message.photo` and sends a new message instead.
+
+## Чеки НПД («Мой налог»)
+
+Владелец — **самозанятый**, поэтому чеки по 54-ФЗ через ЮKassa невозможны:
+онлайн-кассы нет, а канал чеков для самозанятых ЮKassa **отключила 29.12.2025**.
+Доход регистрируется напрямую в ФНС через неофициальный API `lknpd.nalog.ru`.
+
+**Поток:** `confirm_payment()` → `True` → `asyncio.create_task(issue_receipt(...))`
+в обеих точках подтверждения ([payment.py:238](bot/handlers/payment.py#L238) ручная
+кнопка, [payment.py:333](bot/handlers/payment.py#L333) фоновый polling) → строка в
+`npd_receipts` через `INSERT OR IGNORE` → `POST /income` → `approvedReceiptUuid` →
+ссылка `https://lknpd.nalog.ru/api/v1/receipt/{ИНН}/{uuid}/print` уходит юзеру
+кнопкой «🧾 Открыть чек».
+
+**Ключевой инвариант:** фискализация никогда не блокирует выдачу оплаченного —
+вызов всегда fire-and-forget.
+
+**Отказы:** до 6 попыток за заход (немедленная + ретраи 2/5/15/60/300 сек).
+Исчерпали → `status='failed'` + алерт админу. Бюджет попыток **локальный на каждый
+заход**, а `attempts` в БД — пожизненный счётчик: иначе sweep не смог бы починить
+уже исчерпанный чек. При старте бота `retry_pending_receipts()` добивает всё
+незакрытое. Вручную — `/receipts_failed` и `/receipts_retry`.
+
+**Токен** живёт ~1 час, привязан к `NPD_DEVICE_ID`. На 401 — прозрачный refresh,
+при провале — полный перелогин.
+
+**Ограничения НПД:** лимит 2,4 млн ₽/год, платить могут только физлица. При
+подходе к лимиту — переход на ИП, и тогда станет доступен `receipt` в ЮKassa.
+
+**Тесты:** `python3 tests/test_npd_payload.py`, `tests/test_npd_storage.py`,
+`tests/test_npd_receipts.py` — все self-contained, без pytest. Первые два бегут
+и без `.env` (не тянут `bot.config`); третий требует `.env`, потому что
+`npd_receipts.py` импортирует `settings` и клавиатуры aiogram.
+
+**Диагностика:** `sudo journalctl -u photoshoot_ai | grep 'НПД'`
+
+**Design docs:** [docs/superpowers/specs/2026-08-20-npd-receipts-design.md](docs/superpowers/specs/2026-08-20-npd-receipts-design.md)
+и [docs/superpowers/plans/2026-08-20-npd-receipts.md](docs/superpowers/plans/2026-08-20-npd-receipts.md).
 
 ## Deep Link Tracking
 
