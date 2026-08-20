@@ -23,6 +23,7 @@ from bot.services.user_limits import (
     get_remaining_generations,
     update_payment_provider_id,
 )
+from bot.services.npd_receipts import issue_receipt
 from bot.services.watermark import get_clean_copy
 from bot.services.yookassa_client import (
     check_yookassa_payment,
@@ -232,6 +233,10 @@ async def check_payment_status(callback: CallbackQuery) -> None:
     if status == "succeeded":
         success = confirm_payment(internal_id)
         if success and pkg:
+            # Фискализация не блокирует выдачу — отдельной задачей
+            asyncio.create_task(
+                issue_receipt(callback.bot, internal_id, user_id, pkg)
+            )
             if pkg.id == WATERMARK_UNLOCK_ID:
                 await callback.message.edit_text(
                     "✅ <b>Оплата прошла успешно!</b>\n\n"
@@ -324,6 +329,9 @@ async def _poll_payment(
         if status == "succeeded":
             success = confirm_payment(internal_id)
             if success:
+                asyncio.create_task(
+                    issue_receipt(bot, internal_id, user_id, pkg)
+                )
                 try:
                     await _deliver_after_payment(bot, user_id, pkg)
                 except Exception as e:
