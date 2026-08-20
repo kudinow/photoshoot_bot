@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import json
+import random
 import shutil
 import subprocess
 import sys
@@ -13,11 +15,14 @@ import yaml
 
 POSTS_DIR = Path(__file__).parent / "posts"
 OUTPUT_DIR = Path(__file__).parent / "output"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+SITEMAP_SCRIPT = REPO_ROOT / "scripts" / "gen_sitemap.py"
 SITE_URL = "https://ai-photobot.ru"
 BOT_URL = "https://t.me/photoshoot_generator_bot?start=blog"
 
 SERVER = "kudinow@89.169.163.73"
 REMOTE_DIR = "/var/www/landing/blog"
+REMOTE_LANDING_DIR = "/var/www/landing"
 
 MONTHS_RU = [
     "", "января", "февраля", "марта", "апреля", "мая", "июня",
@@ -354,6 +359,48 @@ FOOTER_HTML = """\
 </footer>
 """
 
+RELATED_CSS = """\
+.related-section {
+    padding: 48px 0 8px;
+    background: var(--gray-50);
+    border-top: 1px solid var(--gray-200);
+}
+.related-section__title {
+    font-size: 1.2rem; font-weight: 700;
+    margin-bottom: 20px; text-align: center;
+    color: var(--gray-900);
+}
+.related-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 16px; max-width: 1000px; margin: 0 auto;
+}
+.related-card {
+    background: white; border-radius: 12px; padding: 18px;
+    border: 1px solid var(--gray-200);
+    text-decoration: none; color: inherit;
+    transition: transform 0.2s, box-shadow 0.2s;
+    display: flex; flex-direction: column;
+}
+.related-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(0,0,0,0.06);
+}
+.related-card__title {
+    font-size: 0.95rem; font-weight: 600;
+    line-height: 1.4; color: var(--gray-900);
+    margin-bottom: 8px;
+}
+.related-card__desc {
+    font-size: 0.82rem; color: var(--gray-500);
+    line-height: 1.5; flex: 1;
+}
+@media (max-width: 768px) {
+    .related-section { padding: 32px 0 8px; }
+    .related-grid { grid-template-columns: 1fr; gap: 12px; }
+    .related-card { padding: 14px; }
+}
+"""
+
 CTA_HTML = f"""\
 <section class="cta-section">
     <div class="container">
@@ -363,6 +410,47 @@ CTA_HTML = f"""\
     </div>
 </section>
 """
+
+
+def listing_jsonld(posts: list[dict]) -> str:
+    blog = {
+        "@context": "https://schema.org",
+        "@type": "Blog",
+        "name": "Блог — Фото для резюме",
+        "url": f"{SITE_URL}/blog/",
+        "description": "Советы по фотографии для резюме, карьере и использованию AI.",
+        "publisher": {
+            "@type": "Organization",
+            "name": "Фото для резюме",
+            "logo": {"@type": "ImageObject", "url": f"{SITE_URL}/photo/hero-after.jpg"},
+        },
+        "blogPost": [
+            {
+                "@type": "BlogPosting",
+                "headline": p["title"],
+                "description": p["description"],
+                "datePublished": p["date_obj"].strftime("%Y-%m-%d"),
+                "url": f"{SITE_URL}/blog/{p['slug']}/",
+            }
+            for p in posts[:20]
+        ],
+    }
+    breadcrumb = {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+            {"@type": "ListItem", "position": 1, "name": "Главная", "item": f"{SITE_URL}/"},
+            {"@type": "ListItem", "position": 2, "name": "Блог", "item": f"{SITE_URL}/blog/"},
+        ],
+    }
+    return (
+        '<script type="application/ld+json">'
+        + json.dumps(blog, ensure_ascii=False)
+        + "</script>\n"
+        + '<script type="application/ld+json">'
+        + json.dumps(breadcrumb, ensure_ascii=False)
+        + "</script>"
+    )
 
 
 def build_listing_page(posts: list[dict]) -> str:
@@ -375,20 +463,28 @@ def build_listing_page(posts: list[dict]) -> str:
             </a>'''
         for p in posts
     )
+    jsonld = listing_jsonld(posts)
 
     return f"""<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Блог — Фото для резюме</title>
-    <meta name="description" content="Советы по фотографии для резюме, карьере и использованию AI для создания профессиональных портретов.">
+    <title>Блог о фото для резюме, LinkedIn и делового профиля — Фото для резюме</title>
+    <meta name="description" content="Гайды о фото для резюме, LinkedIn и делового профиля. Как выбрать одежду, ракурс, фон. Сравнение AI и студии. Советы для разных профессий.">
     <link rel="canonical" href="{SITE_URL}/blog/">
+    <meta name="theme-color" content="#2563EB">
     <meta property="og:title" content="Блог — Фото для резюме">
-    <meta property="og:description" content="Советы по фотографии для резюме, карьере и использованию AI для создания профессиональных портретов.">
+    <meta property="og:description" content="Гайды о фото для резюме, LinkedIn и делового профиля.">
     <meta property="og:type" content="website">
     <meta property="og:url" content="{SITE_URL}/blog/">
     <meta property="og:site_name" content="Фото для резюме">
+    <meta property="og:locale" content="ru_RU">
+    <meta property="og:image" content="{SITE_URL}/photo/hero-after.jpg">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Блог — Фото для резюме">
+    <meta name="twitter:description" content="Гайды о фото для резюме, LinkedIn и делового профиля.">
+    <meta name="twitter:image" content="{SITE_URL}/photo/hero-after.jpg">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -397,6 +493,7 @@ def build_listing_page(posts: list[dict]) -> str:
 {LISTING_CSS}
     </style>
     {METRIKA}
+    {jsonld}
 </head>
 <body>
 {NAV_HTML}
@@ -422,10 +519,95 @@ def build_listing_page(posts: list[dict]) -> str:
 </html>"""
 
 
-def build_article_page(post: dict) -> str:
+def pick_related(post: dict, all_posts: list[dict], count: int = 3) -> list[dict]:
+    """Pick N related posts (excluding current). Deterministic per-post via slug-based seed."""
+    candidates = [p for p in all_posts if p["slug"] != post["slug"]]
+    if len(candidates) <= count:
+        return candidates
+    rng = random.Random(post["slug"])
+    return rng.sample(candidates, count)
+
+
+def article_jsonld(post: dict) -> str:
+    # ISO 8601 with МСК timezone (UTC+3) — Google's strict format for datePublished/dateModified
+    date_iso = post["date_obj"].strftime("%Y-%m-%dT00:00:00+03:00")
+    article = {
+        "@context": "https://schema.org",
+        "@type": "Article",
+        "headline": post["title"],
+        "description": post["description"],
+        "datePublished": date_iso,
+        "dateModified": date_iso,
+        "author": {
+            "@type": "Organization",
+            "name": "Команда Фото для резюме",
+            "url": SITE_URL + "/",
+        },
+        "publisher": {
+            "@type": "Organization",
+            "name": "Фото для резюме",
+            "logo": {
+                "@type": "ImageObject",
+                "url": f"{SITE_URL}/photo/hero-after.jpg",
+            },
+        },
+        "mainEntityOfPage": {
+            "@type": "WebPage",
+            "@id": f"{SITE_URL}/blog/{post['slug']}/",
+        },
+        "image": f"{SITE_URL}/photo/hero-after.jpg",
+    }
+    breadcrumb = {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+            {"@type": "ListItem", "position": 1, "name": "Главная", "item": f"{SITE_URL}/"},
+            {"@type": "ListItem", "position": 2, "name": "Блог", "item": f"{SITE_URL}/blog/"},
+            {
+                "@type": "ListItem",
+                "position": 3,
+                "name": post["title"],
+                "item": f"{SITE_URL}/blog/{post['slug']}/",
+            },
+        ],
+    }
+    return (
+        '<script type="application/ld+json">'
+        + json.dumps(article, ensure_ascii=False)
+        + "</script>\n"
+        + '<script type="application/ld+json">'
+        + json.dumps(breadcrumb, ensure_ascii=False)
+        + "</script>"
+    )
+
+
+def render_related_block(related: list[dict]) -> str:
+    if not related:
+        return ""
+    cards = "\n".join(
+        f'''            <a href="/blog/{p["slug"]}/" class="related-card">
+                <div class="related-card__title">{p["title"]}</div>
+                <div class="related-card__desc">{p["description"]}</div>
+            </a>'''
+        for p in related
+    )
+    return f"""<section class="related-section">
+    <div class="container">
+        <h2 class="related-section__title">Связанные статьи</h2>
+        <div class="related-grid">
+{cards}
+        </div>
+    </div>
+</section>"""
+
+
+def build_article_page(post: dict, all_posts: list[dict]) -> str:
     body_html = render_markdown(post["body_md"])
     date_display = format_date_ru(post["date_obj"])
     date_iso = post["date_obj"].strftime("%Y-%m-%d")
+    related = pick_related(post, all_posts)
+    related_html = render_related_block(related)
+    jsonld = article_jsonld(post)
 
     return f"""<!DOCTYPE html>
 <html lang="ru">
@@ -435,20 +617,30 @@ def build_article_page(post: dict) -> str:
     <title>{post["title"]} — Блог Фото для резюме</title>
     <meta name="description" content="{post["description"]}">
     <link rel="canonical" href="{SITE_URL}/blog/{post["slug"]}/">
+    <meta name="theme-color" content="#2563EB">
     <meta property="og:title" content="{post["title"]}">
     <meta property="og:description" content="{post["description"]}">
     <meta property="og:type" content="article">
     <meta property="og:url" content="{SITE_URL}/blog/{post["slug"]}/">
     <meta property="og:site_name" content="Фото для резюме">
-    <meta name="twitter:card" content="summary">
+    <meta property="og:locale" content="ru_RU">
+    <meta property="og:image" content="{SITE_URL}/photo/hero-after.jpg">
+    <meta property="article:published_time" content="{date_iso}">
+    <meta property="article:author" content="Команда Фото для резюме">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="{post["title"]}">
+    <meta name="twitter:description" content="{post["description"]}">
+    <meta name="twitter:image" content="{SITE_URL}/photo/hero-after.jpg">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
 {BASE_CSS}
 {ARTICLE_CSS}
+{RELATED_CSS}
     </style>
     {METRIKA}
+    {jsonld}
 </head>
 <body>
 {NAV_HTML}
@@ -468,6 +660,7 @@ def build_article_page(post: dict) -> str:
     </div>
 </article>
 
+{related_html}
 {CTA_HTML}
 {FOOTER_HTML}
 {NAV_JS}
@@ -493,7 +686,7 @@ def build():
     OUTPUT_DIR.mkdir(parents=True)
 
     for post in posts:
-        article_html = build_article_page(post)
+        article_html = build_article_page(post, posts)
         slug_dir = OUTPUT_DIR / post["slug"]
         slug_dir.mkdir(parents=True, exist_ok=True)
         (slug_dir / "index.html").write_text(article_html, encoding="utf-8")
@@ -532,7 +725,22 @@ def local_deploy():
         shutil.copy2(html_file, dest)
         print(f"  Copied: /blog/{rel_path}")
 
+    regenerate_sitemap(Path(REMOTE_LANDING_DIR) / "sitemap.xml")
     print(f"\nDone! Visit {SITE_URL}/blog/")
+
+
+def regenerate_sitemap(output_path: Path) -> None:
+    """Run gen_sitemap.py writing to the given output path."""
+    if not SITEMAP_SCRIPT.exists():
+        print(f"  [warn] sitemap script not found at {SITEMAP_SCRIPT}, skipping")
+        return
+    try:
+        subprocess.run(
+            [sys.executable, str(SITEMAP_SCRIPT), "--output", str(output_path)],
+            check=True,
+        )
+    except subprocess.CalledProcessError as e:
+        print(f"  [warn] sitemap generation failed: {e}")
 
 
 if __name__ == "__main__":
