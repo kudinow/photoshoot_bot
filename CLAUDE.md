@@ -29,7 +29,7 @@ No test suite, linter, or build step exists. Dependencies: `pip install -r requi
 1. User sends `/start` → sees welcome + gender selection buttons
 2. User picks gender → sees clothing style selection (business/casual/creative)
 3. User picks style → FSM moves to `awaiting_photo` state
-4. User sends photo → handler calls OpenRouter (GPT-5.2) to generate a style-aware prompt, then calls kie.ai API (`gpt-image-2-image-to-image`) to transform the image
+4. User sends photo → handler calls OpenRouter (GPT-5.2) to generate a style-aware prompt, then calls kie.ai API (`google/nano-banana-edit`) to transform the image
 5. Result photo sent back with "Regenerate" and "New photo" buttons
 6. **After the user's first successful generation only**, bot sends a rating prompt (1-5 stars). All ratings persist to `ratings` table and notify admin: 5⭐ sends a short text alert and surfaces the referral link to the user; 1-4⭐ forwards both photos + feedback text to admin. One-shot per user, gated by `users.has_rated` flag.
 7. For non-admin users, the first-generation result is watermarked (`ai-photobot.ru` diagonal); the clean version is delivered after a dedicated 50₽ `watermark_unlock` payment (0 credits) via the `🔓 Убрать знак — 50 ₽` button.
@@ -50,7 +50,7 @@ No test suite, linter, or build step exists. Dependencies: `pip install -r requi
 | `bot/handlers/support.py` | In-bot two-way support chat: `/support` + `support_open` entry, `InSupportSession` filter relays user text/photo to admin (uid embedded), admin native-Reply routes back, close from either side |
 | `bot/services/yookassa_client.py` | Async wrapper over YooKassa SDK (payment creation + status check via `run_in_executor`) |
 | `bot/services/openai_client.py` | `OpenAIClient` — async prompt generation via OpenRouter (GPT-5.2) |
-| `bot/services/kie_client.py` | `KieClient` — async image transformation via kie.ai. Prod uses `transform_photo_gpt_image_2()` (model `gpt-image-2-image-to-image`, aspect_ratio `3:4`, resolution `2K`). Legacy `transform_photo()` (model `google/nano-banana-edit`) is kept in the file as fallback but not called from any handler. |
+| `bot/services/kie_client.py` | `KieClient` — async image transformation via kie.ai. Prod uses `transform_photo()` (model `google/nano-banana-edit`, image_size `auto`). `transform_photo_gpt_image_2()` (model `gpt-image-2-image-to-image`, aspect_ratio `3:4`, resolution `2K`) is kept in the file as fallback and still used by the admin `/test_gpt` sandbox, but not called from the prod generation handlers. |
 | `bot/handlers/admin_test.py` | Admin-only `/test_gpt` flow (gender → style → photo). Always runs GPT Image 2; does not write to `users.generations`, `paid_credits`, `generations_log`, `ratings`. Useful as a no-side-effect sandbox for the admin. |
 | `bot/services/user_limits.py` | SQLite-based user limit tracking (1 free generation + paid credits, admin bypass), payment history, deep-link referral stats, user-to-user referral program, rating helpers, `has_unlocked_watermark()` for watermark unlock, `init_db()` called at startup |
 | `bot/states/generation.py` | `GenerationStates` FSM: `selecting_gender` → `selecting_style` → `awaiting_photo` → `processing`; plus `awaiting_feedback_text` used by the rating flow |
@@ -76,6 +76,7 @@ Configured via `.env` (see `.env.example`):
 - `BOT_TOKEN` — Telegram bot token
 - `KIE_API_KEY`, `KIE_API_URL` — kie.ai image transformation API
 - `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL` — OpenRouter for GPT-5.2 access (used instead of OpenAI directly due to Russia restrictions)
+- `OPENROUTER_PROXY` — optional proxy for OpenRouter (`http://user:pass@host:port` or `socks5://host:port`; socks5 needs `pip install httpx[socks]`). Empty = direct connection. **Currently required in prod**: Cloudflare returns 403 to the server's Russian IP — see "LLM Prompt Generation & Fallback" below
 - `YOOKASSA_SHOP_ID`, `YOOKASSA_SECRET_KEY` — YooKassa payment credentials
 - `YOOKASSA_RETURN_URL` — deep link back to bot after payment (default: `https://t.me/photoshoot_generator_bot`)
 - `DEBUG` — enables DEBUG-level logging
@@ -86,6 +87,23 @@ Configured via `.env` (see `.env.example`):
 - `CREDIT_PACKAGES` in `bot/config.py` — three credit packs: 5/149₽, 15/349₽, 50/899₽ (prices in kopecks for payment API)
 - Prompt templates in `bot/config.py`: `PROMPT_BASE` (common studio setup), `STYLE_PROMPTS` dict with 6 style sections (business/casual/creative × male/female), `build_system_prompt(gender, style)` assembles them, `PROMPT_CRITICAL_SUFFIX` (face preservation). Critical for output quality; changes should be tested carefully
 - `STYLE_LABELS` in `bot/config.py` — style display names: business→"деловой", casual→"кежуал", creative→"креативный"
+
+## LLM Prompt Generation & Fallback
+
+Step 1 of every generation is building a style-aware prompt via OpenRouter (GPT-5.2). Since **2026-07-13** OpenRouter's Cloudflare returns `403 {"success": false, "error": "Access denied by security policy."}` to the production IP (89.169.163.73, Yandex Cloud RU) — even to a bare `GET https://openrouter.ai/` with no API key. It's IP/geo blocking, not the key. Symptom before the fix: users saw «Ошибка генерации стиля. Попробуй ещё раз.» (the `except OpenAIClientError` branch in [bot/handlers/photo.py](bot/handlers/photo.py)); the bot never reached kie.ai.
+
+**Two-layer mitigation (deployed 2026-07-31):**
+
+1. **Proxy support** — `OPENROUTER_PROXY` env var. When set, `OpenAIClient` builds an `httpx.AsyncClient(proxy=...)` and hands it to `AsyncOpenAI` ([bot/services/openai_client.py](bot/services/openai_client.py)). Credentials are masked in logs via `_mask_proxy()`. Unset = direct connection.
+2. **Local prompt fallback** — [bot/services/prompt_fallback.py](bot/services/prompt_fallback.py)::`build_local_prompt(gender, style)` assembles a prompt locally from randomized vocabulary tables (garments / colors / accessories / lighting / backdrop / camera per `(gender, style)`), matching the "Universal Prompt Template" shape. `generate_prompt()` **no longer raises** after exhausting retries — it logs `Using LOCAL fallback prompt` at WARNING and returns the local prompt + `PROMPT_CRITICAL_SUFFIX`. So generation never dies because the LLM is unreachable.
+
+`OpenAIClientError` is still defined and still caught by handlers, but is not raised on API failure any more.
+
+**Diagnosing:** `sudo journalctl -u photoshoot_ai | grep -E 'Using LOCAL fallback|Access denied by security policy'`. Fallback in use = every generation logs the WARNING. Once a working proxy is set, that WARNING should disappear.
+
+**Tests:** `python3 tests/test_prompt_fallback.py` (self-contained, no pytest needed — `prompt_fallback.py` deliberately imports nothing from `bot.config`, so it runs without `.env`).
+
+**Note on `Settings` annotations:** use `Optional[str]`, not `str | None` — pydantic evaluates field annotations at runtime and local dev runs Python 3.9 (prod is 3.10).
 
 ## Payment System
 
