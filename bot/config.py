@@ -28,6 +28,16 @@ class Settings(BaseSettings):
     yookassa_secret_key: str
     yookassa_return_url: str = "https://t.me/photoshoot_generator_bot"
 
+    # «Мой налог» (НПД) — автоматические чеки самозанятого.
+    # Аннотации строго Optional[str]: pydantic вычисляет их в рантайме,
+    # а локальная разработка идёт на Python 3.9.
+    npd_inn: Optional[str] = None
+    npd_password: Optional[str] = None
+    # sourceDeviceId обязан быть стабильным — токен привязан к нему.
+    npd_device_id: Optional[str] = None
+    # Фича-флаг: пока False, фискализация полностью выключена.
+    npd_enabled: bool = False
+
     # Settings
     debug: bool = False
 
