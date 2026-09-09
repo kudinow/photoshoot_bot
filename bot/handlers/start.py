@@ -181,11 +181,16 @@ async def regenerate_photo(
     # Импортируем здесь, чтобы избежать циклических импортов
     from aiogram.types import BufferedInputFile
 
-    from bot.services.kie_client import KieClientError, kie_client
+    from bot.services.kie_client import (
+        KieClientError,
+        KieTaskFailedError,
+        kie_client,
+    )
     from bot.services.openai_client import (
         OpenAIClientError,
         openai_client,
     )
+    from bot.handlers.photo import safe_notify
     from bot.handlers.rating import send_rating_request
     from bot.services.user_limits import (
         get_generations_count,
@@ -297,28 +302,39 @@ async def regenerate_photo(
 
     except OpenAIClientError as e:
         logger.error(f"OpenAI error for user {user_id}: {e}")
-        await processing_msg.edit_text(
+        await safe_notify(
+            processing_msg,
             "Ошибка генерации стиля. Попробуй ещё раз.",
-            reply_markup=get_restart_keyboard(has_last_photo=True),
+            get_restart_keyboard(has_last_photo=True),
         )
 
     except KieClientError as e:
         logger.error(f"KieClient error for user {user_id}: {e}")
-        await processing_msg.edit_text(
-            "Произошла ошибка при обработке фото. "
-            "Попробуй ещё раз.\n\n"
-            f"Ошибка: {e}",
-            reply_markup=get_restart_keyboard(has_last_photo=True),
+        if isinstance(e, KieTaskFailedError) and not e.transient:
+            text = (
+                "Не получилось обработать это фото 😔\n\n"
+                "Попробуй другое: лицо крупно и анфас, хорошее "
+                "освещение, без фильтров и других людей в кадре."
+            )
+        else:
+            text = (
+                "Не получилось обработать фото — сервис генерации "
+                "не ответил.\n\nПопробуй ещё раз, обычно со второго "
+                "раза получается."
+            )
+        await safe_notify(
+            processing_msg, text, get_restart_keyboard(has_last_photo=True)
         )
 
     except Exception as e:
         logger.exception(
             f"Unexpected error for user {user_id}: {e}"
         )
-        await processing_msg.edit_text(
+        await safe_notify(
+            processing_msg,
             "Произошла неожиданная ошибка. "
             "Попробуй ещё раз позже.",
-            reply_markup=get_restart_keyboard(has_last_photo=True),
+            get_restart_keyboard(has_last_photo=True),
         )
 
     finally:

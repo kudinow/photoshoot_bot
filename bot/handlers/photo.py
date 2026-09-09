@@ -6,7 +6,11 @@ from aiogram.types import BufferedInputFile, Message
 
 from bot.handlers.rating import send_rating_request
 from bot.keyboards.inline import get_buy_keyboard, get_restart_keyboard
-from bot.services.kie_client import KieClientError, kie_client
+from bot.services.kie_client import (
+    KieClientError,
+    KieTaskFailedError,
+    kie_client,
+)
 from bot.services.openai_client import OpenAIClientError, openai_client
 from bot.services.user_limits import (
     can_generate,
@@ -26,6 +30,25 @@ from bot.states.generation import GenerationStates
 logger = logging.getLogger(__name__)
 
 router = Router()
+
+
+async def safe_notify(msg: Message, text: str, markup=None) -> None:
+    """Показывает пользователю текст ошибки, не роняя обработчик.
+
+    edit_text у Telegram может отвалиться по таймауту — и тогда юзер
+    остаётся с висящим «Обрабатываю...» навсегда. Поэтому падаем на
+    новое сообщение, а если и оно не ушло — только пишем в лог.
+    """
+    try:
+        await msg.edit_text(text, reply_markup=markup)
+        return
+    except Exception as e:
+        logger.warning(f"edit_text failed ({e}), sending new message")
+
+    try:
+        await msg.answer(text, reply_markup=markup)
+    except Exception as e:
+        logger.error(f"Failed to notify user in chat {msg.chat.id}: {e}")
 
 
 @router.message(F.photo, GenerationStates.awaiting_photo)
@@ -201,30 +224,39 @@ async def handle_photo(
         logger.error(
             f"OpenAI error for user {message.from_user.id}: {e}"
         )
-        await processing_msg.edit_text(
+        await safe_notify(
+            processing_msg,
             "Ошибка генерации стиля. Попробуй ещё раз.",
-            reply_markup=get_restart_keyboard(),
+            get_restart_keyboard(),
         )
 
     except KieClientError as e:
         logger.error(
             f"KieClient error for user {message.from_user.id}: {e}"
         )
-        await processing_msg.edit_text(
-            "Произошла ошибка при обработке фото. "
-            "Попробуй ещё раз.\n\n"
-            f"Ошибка: {e}",
-            reply_markup=get_restart_keyboard(),
-        )
+        if isinstance(e, KieTaskFailedError) and not e.transient:
+            text = (
+                "Не получилось обработать это фото 😔\n\n"
+                "Попробуй другое: лицо крупно и анфас, хорошее "
+                "освещение, без фильтров и других людей в кадре."
+            )
+        else:
+            text = (
+                "Не получилось обработать фото — сервис генерации "
+                "не ответил.\n\nПопробуй ещё раз, обычно со второго "
+                "раза получается."
+            )
+        await safe_notify(processing_msg, text, get_restart_keyboard())
 
     except Exception as e:
         logger.exception(
             f"Unexpected error for user {message.from_user.id}: {e}"
         )
-        await processing_msg.edit_text(
+        await safe_notify(
+            processing_msg,
             "Произошла неожиданная ошибка. "
             "Попробуй ещё раз позже.",
-            reply_markup=get_restart_keyboard(),
+            get_restart_keyboard(),
         )
 
     finally:
