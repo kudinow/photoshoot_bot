@@ -1,6 +1,7 @@
 import logging
 
 from aiogram import Bot, F, Router
+from aiogram.exceptions import TelegramNetworkError
 from aiogram.fsm.context import FSMContext
 from aiogram.types import BufferedInputFile, Message
 
@@ -13,14 +14,13 @@ from bot.services.kie_client import (
 )
 from bot.services.openai_client import OpenAIClientError, openai_client
 from bot.services.user_limits import (
-    can_generate,
     get_generations_count,
     get_remaining_generations,
-    has_free_generations,
     has_user_rated,
-    increment_generations,
     is_admin,
     log_generation,
+    refund_generation,
+    reserve_generation,
     reward_referrer,
     save_last_photo,
 )
@@ -30,6 +30,19 @@ from bot.states.generation import GenerationStates
 logger = logging.getLogger(__name__)
 
 router = Router()
+
+
+async def answer_photo_with_retry(target: Message, **kwargs) -> Message:
+    """answer_photo с одной повторной попыткой при сетевой ошибке Telegram.
+
+    Вызывается после точки невозврата (генерация уже не возвращается), поэтому
+    лучше изредка прислать фото дважды, чем не прислать вовсе.
+    """
+    try:
+        return await target.answer_photo(**kwargs)
+    except TelegramNetworkError as e:
+        logger.warning(f"answer_photo failed: {e}. Retrying once")
+        return await target.answer_photo(**kwargs)
 
 
 async def safe_notify(msg: Message, text: str, markup=None) -> None:
@@ -58,8 +71,10 @@ async def handle_photo(
     """Обработчик получения фото"""
     user_id = message.from_user.id
 
-    # Проверяем лимит генераций
-    if not can_generate(user_id):
+    # Списываем генерацию ДО запуска; если результат не дойдёт — вернём в finally
+    was_first_generation = get_generations_count(user_id) == 0
+    reserved = reserve_generation(user_id)
+    if reserved is None:
         await message.answer(
             "К сожалению, все генерации использованы 😔\n\n"
             "Пригласи друга — получи бесплатную генерацию!\n"
@@ -69,21 +84,26 @@ async def handle_photo(
         await state.clear()
         return
 
-    await state.set_state(GenerationStates.processing)
+    committed = False
+    try:
+        await state.set_state(GenerationStates.processing)
 
-    # Показываем оставшиеся генерации
-    remaining = get_remaining_generations(user_id)
-    remaining_text = (
-        ""
-        if remaining == -1
-        else f"\n(Осталось генераций: {remaining - 1})"
-    )
+        # Показываем оставшиеся генерации (текущая уже списана)
+        remaining = get_remaining_generations(user_id)
+        remaining_text = (
+            ""
+            if remaining == -1
+            else f"\n(Осталось генераций: {remaining})"
+        )
 
-    # Отправляем сообщение о начале обработки
-    processing_msg = await message.answer(
-        "Фото получено! Создаю профессиональный портрет...\n"
-        f"Это может занять 1-2 минуты.{remaining_text}"
-    )
+        # Отправляем сообщение о начале обработки
+        processing_msg = await message.answer(
+            "Фото получено! Создаю профессиональный портрет...\n"
+            f"Это может занять 1-2 минуты.{remaining_text}"
+        )
+    except BaseException:
+        refund_generation(user_id, reserved)
+        raise
 
     try:
         # Получаем данные из состояния
@@ -131,7 +151,6 @@ async def handle_photo(
         result_image = await kie_client.download_image(result_url)
 
         # Водяной знак на первой бесплатной генерации (кроме админа)
-        was_first_generation = get_generations_count(user_id) == 0
         watermarked = False
         if was_first_generation and not is_admin(user_id):
             try:
@@ -147,10 +166,12 @@ async def handle_photo(
         # Удаляем сообщение о обработке
         await processing_msg.delete()
 
-        # Увеличиваем счётчик генераций
-        is_paid = not has_free_generations(user_id)
-        increment_generations(user_id)
-        log_generation(user_id, gender, style, is_paid)
+        # Точка невозврата: дальше генерация не возвращается. Иначе возврат после
+        # save_last_photo / reward_referrer / answer_photo дал бы бесплатную
+        # «первую» генерацию без водяного знака в regenerate и награду
+        # пригласившему за фото, которого друг не получил.
+        committed = True
+        log_generation(user_id, gender, style, reserved == "paid")
 
         # Реферальная награда: если это первая генерация пользователя
         if was_first_generation:
@@ -200,7 +221,8 @@ async def handle_photo(
             )
 
         # Отправляем результат
-        await message.answer_photo(
+        await answer_photo_with_retry(
+            message,
             photo=BufferedInputFile(
                 result_image, filename="studio_portrait.jpg"
             ),
@@ -260,6 +282,8 @@ async def handle_photo(
         )
 
     finally:
+        if not committed:
+            refund_generation(user_id, reserved)
         await state.clear()
 
 

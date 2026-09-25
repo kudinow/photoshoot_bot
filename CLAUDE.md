@@ -57,7 +57,7 @@ No test suite, linter, or build step exists. Dependencies: `pip install -r requi
 | `bot/services/openai_client.py` | `OpenAIClient` — async prompt generation via OpenRouter (GPT-5.2) |
 | `bot/services/kie_client.py` | `KieClient` — async image transformation via kie.ai. Prod uses `transform_photo()` (model `google/nano-banana-edit`, image_size `auto`), which retries transient task failures — see «Устойчивость к сбоям сети». `transform_photo_gpt_image_2()` (model `gpt-image-2-image-to-image`, aspect_ratio `3:4`, resolution `2K`) is kept in the file as fallback and still used by the admin `/test_gpt` sandbox, but not called from the prod generation handlers. |
 | `bot/handlers/admin_test.py` | Admin-only `/test_gpt` flow (gender → style → photo). Always runs GPT Image 2; does not write to `users.generations`, `paid_credits`, `generations_log`, `ratings`. Useful as a no-side-effect sandbox for the admin. |
-| `bot/services/user_limits.py` | SQLite-based user limit tracking (1 free generation + paid credits, admin bypass), payment history, deep-link referral stats, user-to-user referral program, rating helpers, `has_unlocked_watermark()` for watermark unlock, `init_db()` called at startup |
+| `bot/services/user_limits.py` | SQLite-based user limit tracking (1 free generation + paid credits, admin bypass; `reserve_generation()` / `refund_generation()` — списание до генерации и возврат), payment history, deep-link referral stats, user-to-user referral program, rating helpers, `has_unlocked_watermark()` for watermark unlock, `init_db()` called at startup |
 | `bot/states/generation.py` | `GenerationStates` FSM: `selecting_gender` → `selecting_style` → `awaiting_photo` → `processing`; plus `awaiting_feedback_text` used by the rating flow |
 | `bot/keyboards/inline.py` | Inline keyboard builders: gender/style selection, restart/regenerate, buy credits + package selection, rating stars (numbered `1⭐..5⭐`), feedback skip, five-star referral CTA |
 
@@ -154,7 +154,8 @@ Step 1 of every generation is building a style-aware prompt via OpenRouter (GPT-
 
 **Диагностика:** `sudo journalctl -u photoshoot_ai | grep -E 'Polling dropped|rejected permanently|failed on attempt'`.
 Строки `Polling dropped by network error` — это работающая защита, а не поломка;
-`NRestarts` при этом расти не должен.
+`NRestarts` при этом расти не должен. Если polling до обрыва прожил дольше
+`POLLING_HEALTHY_AFTER = 60` сек, счётчик пауз сбрасывается и обрыв снова ждёт 5 сек, а не 60.
 
 **Сама причина не устранена.** HTTPS до `api.telegram.org` виснет наглухо примерно в
 одном запросе из трёх (ICMP при этом идёт без потерь — похоже на выборочный DPI по SNI);
@@ -173,7 +174,9 @@ Step 1 of every generation is building a style-aware prompt via OpenRouter (GPT-
 4. User pays on YooKassa → returns to bot via `YOOKASSA_RETURN_URL`
 5. Payment confirmed via background polling (every 15s, up to 15 min) or manual "Check payment" button → credits added
 
-**Credit consumption order:** Free generations first, then paid credits. `can_generate()` checks both pools. `increment_generations()` deducts from the correct pool automatically.
+**Credit consumption order:** Free generations first, then paid credits. Списывает `reserve_generation()`, см. ниже. `can_generate()` проверяет оба пула без списания: нужна для кнопок и ранней проверки в regenerate (до `get_last_photo`, чтобы не списывать у юзера без сохранённого фото).
+
+**Списание до генерации (с 2026-09-25).** Оба генерирующих обработчика (`handle_photo` в photo.py, `regenerate_photo` в start.py) списывают генерацию **до** запуска через `reserve_generation()` — атомарный условный `UPDATE`, возвращает `"free"`/`"paid"`/`"admin"`/`None`. Раньше лимит проверялся в начале, а списывался через 1–2 минуты после генерации, и несколько быстрых нажатий «Сгенерировать заново» при одном кредите проходили все. Если сбой случился до **точки невозврата** (сразу после `processing_msg.delete()`), в `finally` вызывается `refund_generation()`. После неё генерация не возвращается никогда: `log_generation`, `reward_referrer`, `save_last_photo` и отправка фото идут только за ней. Это держит два инварианта: награда пригласившему не уходит за неотданное фото, а regenerate не может стать «первой» генерацией в обход водяного знака. Отправка результата — `answer_photo_with_retry()` (одна повторная попытка при `TelegramNetworkError`; изредка фото придёт дважды). `increment_generations()` в обработчиках больше не используется.
 
 **Caveat:** Callback buttons on photo messages cannot use `edit_text()` — only `edit_caption()` or sending a new message. The `show_packages` handler detects this via `callback.message.photo` and sends a new message instead.
 
@@ -277,7 +280,7 @@ After the user's first successful generation (and only then), the bot asks them 
 On every non-admin user's **first successful generation**, the result is watermarked with a diagonal `ai-photobot.ru` pattern. The clean version is saved to disk and delivered after the user pays a dedicated **50₽** (`watermark_unlock`) micro-payment — which grants **0 generation credits**, only the clean photo.
 
 **Scope:**
-- Fires only when `was_first_generation and not is_admin(user_id)` in [bot/handlers/photo.py](bot/handlers/photo.py) (computed before `increment_generations`).
+- Fires only when `was_first_generation and not is_admin(user_id)` in [bot/handlers/photo.py](bot/handlers/photo.py) (computed before `reserve_generation`).
 - Admin (`ADMIN_ID`) bypassed — always clean, no unlock button.
 - Referral-credit generations (#2+) are clean.
 - Soft degradation: if `apply_watermark` raises, the user gets the clean photo and NO unlock button.
@@ -293,7 +296,7 @@ On every non-admin user's **first successful generation**, the result is waterma
 
 **Key code:** [bot/services/watermark.py](bot/services/watermark.py) (`apply_watermark`, `save_clean_copy`, `get_clean_copy`), [bot/services/user_limits.py](bot/services/user_limits.py) (`has_unlocked_watermark`), [bot/keyboards/inline.py](bot/keyboards/inline.py) (`has_watermarked` kwarg).
 
-**Not in `start.py` regenerate branch** on purpose: `was_first_generation` there is always `False` for non-admin (photo.py increments before save_last_photo) — a hook would be dead code.
+**Not in `start.py` regenerate branch** on purpose: `was_first_generation` there is always `False` for non-admin — regenerate needs `last_photo_url`, which photo.py saves only after the no-refund point (see «Списание до генерации» in Payment System). Moving `save_last_photo` above that point would reopen a free unwatermarked first generation.
 
 **Design docs:** [docs/superpowers/specs/2026-05-29-watermark-unlock-50r-design.md](docs/superpowers/specs/2026-05-29-watermark-unlock-50r-design.md) and [docs/superpowers/plans/2026-05-29-watermark-unlock-50r.md](docs/superpowers/plans/2026-05-29-watermark-unlock-50r.md).
 

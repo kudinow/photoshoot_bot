@@ -2,6 +2,7 @@ import asyncio
 import logging
 import signal
 import sys
+import time
 from contextlib import suppress
 
 from aiogram import Bot, Dispatcher
@@ -21,6 +22,8 @@ from bot.services.user_limits import init_db
 
 # Паузы перед повторным запуском polling'а, если его уронила сеть
 POLLING_RETRY_DELAYS = (5, 10, 20, 30, 60)
+# Polling, проживший дольше этого, считаем восстановившимся: backoff с нуля
+POLLING_HEALTHY_AFTER = 60
 
 
 def setup_logging() -> None:
@@ -101,12 +104,15 @@ async def main() -> None:
 
         attempt = 0
         while not stop_requested.is_set():
+            started_at = time.monotonic()
             try:
                 await dp.start_polling(
                     bot, close_bot_session=False, handle_signals=False
                 )
                 break  # штатная остановка
             except TelegramNetworkError as e:
+                if time.monotonic() - started_at > POLLING_HEALTHY_AFTER:
+                    attempt = 0  # связь была живой — это новый обрыв, не серия
                 delay = POLLING_RETRY_DELAYS[
                     min(attempt, len(POLLING_RETRY_DELAYS) - 1)
                 ]

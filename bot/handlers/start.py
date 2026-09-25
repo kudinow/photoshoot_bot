@@ -153,7 +153,7 @@ async def regenerate_photo(
 
     user_id = callback.from_user.id
 
-    # Проверяем лимит генераций
+    # Проверяем лимит генераций (списание — ниже, после проверки фото)
     if not can_generate(user_id):
         await callback.message.answer(
             "К сожалению, все генерации использованы 😔\n\n"
@@ -190,32 +190,51 @@ async def regenerate_photo(
         OpenAIClientError,
         openai_client,
     )
-    from bot.handlers.photo import safe_notify
+    from bot.handlers.photo import answer_photo_with_retry, safe_notify
     from bot.handlers.rating import send_rating_request
     from bot.services.user_limits import (
         get_generations_count,
-        has_free_generations,
         has_user_rated,
-        increment_generations,
         log_generation,
+        refund_generation,
+        reserve_generation,
         reward_referrer,
     )
 
-    await state.set_state(GenerationStates.processing)
+    # Списываем генерацию ДО запуска: повторное нажатие кнопки, пока идёт
+    # эта генерация, уже увидит списанный кредит. Не дошло — вернём в finally
+    was_first_generation = get_generations_count(user_id) == 0
+    reserved = reserve_generation(user_id)
+    if reserved is None:
+        await callback.message.answer(
+            "К сожалению, все генерации использованы 😔\n\n"
+            "Пригласи друга — получи бесплатную генерацию!\n"
+            "Или купи пакет генераций 👇",
+            reply_markup=get_buy_keyboard(),
+        )
+        await state.clear()
+        return
 
-    # Показываем оставшиеся генерации
-    remaining = get_remaining_generations(user_id)
-    remaining_text = (
-        ""
-        if remaining == -1
-        else f"\n(Осталось генераций: {remaining - 1})"
-    )
+    committed = False
+    try:
+        await state.set_state(GenerationStates.processing)
 
-    # Отправляем сообщение о начале обработки
-    processing_msg = await callback.message.answer(
-        "Генерирую новый вариант твоей фотографии...\n"
-        f"Это может занять 1-2 минуты.{remaining_text}"
-    )
+        # Показываем оставшиеся генерации (текущая уже списана)
+        remaining = get_remaining_generations(user_id)
+        remaining_text = (
+            ""
+            if remaining == -1
+            else f"\n(Осталось генераций: {remaining})"
+        )
+
+        # Отправляем сообщение о начале обработки
+        processing_msg = await callback.message.answer(
+            "Генерирую новый вариант твоей фотографии...\n"
+            f"Это может занять 1-2 минуты.{remaining_text}"
+        )
+    except BaseException:
+        refund_generation(user_id, reserved)
+        raise
 
     try:
         logger.info(
@@ -242,11 +261,9 @@ async def regenerate_photo(
         # Удаляем сообщение о обработке
         await processing_msg.delete()
 
-        # Увеличиваем счётчик генераций
-        was_first_generation = get_generations_count(user_id) == 0
-        is_paid = not has_free_generations(user_id)
-        increment_generations(user_id)
-        log_generation(user_id, gender, style, is_paid)
+        # Точка невозврата: дальше генерация не возвращается (см. photo.py)
+        committed = True
+        log_generation(user_id, gender, style, reserved == "paid")
 
         # Реферальная награда: если это первая генерация пользователя
         if was_first_generation:
@@ -281,7 +298,8 @@ async def regenerate_photo(
             )
 
         # Отправляем результат
-        await callback.message.answer_photo(
+        await answer_photo_with_retry(
+            callback.message,
             photo=BufferedInputFile(
                 result_image, filename="studio_portrait.jpg"
             ),
@@ -338,6 +356,8 @@ async def regenerate_photo(
         )
 
     finally:
+        if not committed:
+            refund_generation(user_id, reserved)
         await state.clear()
 
 
