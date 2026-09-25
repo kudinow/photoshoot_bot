@@ -454,6 +454,62 @@ def increment_generations(user_id: int) -> None:
             )
 
 
+def reserve_generation(user_id: int) -> str | None:
+    """Атомарно списывает генерацию ДО запуска (сначала бесплатные, потом платные).
+
+    Возвращает "admin", "free", "paid" или None, если списывать нечего.
+    Списание до генерации закрывает гонку: второй параллельный запуск
+    (например, двойное нажатие «Сгенерировать заново») видит уже списанный
+    кредит. Если результат не дошёл до юзера — вернуть через refund_generation().
+    """
+    if is_admin(user_id):
+        return "admin"
+
+    with _get_conn() as conn:
+        _ensure_user(conn, user_id)
+
+        cur = conn.execute(
+            "UPDATE users SET generations = generations + 1 "
+            "WHERE user_id = ? AND generations < ?",
+            (user_id, MAX_FREE_GENERATIONS),
+        )
+        if cur.rowcount == 1:
+            logger.info(f"User {user_id}: reserved free generation")
+            return "free"
+
+        cur = conn.execute(
+            "UPDATE users SET paid_credits = paid_credits - 1 "
+            "WHERE user_id = ? AND paid_credits > 0",
+            (user_id,),
+        )
+        if cur.rowcount == 1:
+            logger.info(f"User {user_id}: reserved paid credit")
+            return "paid"
+
+    return None
+
+
+def refund_generation(user_id: int, kind: str | None) -> None:
+    """Возвращает генерацию, списанную reserve_generation()"""
+    if kind == "free":
+        with _get_conn() as conn:
+            conn.execute(
+                "UPDATE users SET generations = generations - 1 "
+                "WHERE user_id = ? AND generations > 0",
+                (user_id,),
+            )
+    elif kind == "paid":
+        with _get_conn() as conn:
+            conn.execute(
+                "UPDATE users SET paid_credits = paid_credits + 1 "
+                "WHERE user_id = ?",
+                (user_id,),
+            )
+    else:
+        return
+    logger.info(f"User {user_id}: refunded {kind} generation (not delivered)")
+
+
 def add_paid_credits(user_id: int, credits: int) -> None:
     """Добавляет оплаченные генерации пользователю"""
     with _get_conn() as conn:

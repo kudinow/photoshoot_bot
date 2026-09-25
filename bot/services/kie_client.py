@@ -8,10 +8,61 @@ from bot.config import settings
 
 logger = logging.getLogger(__name__)
 
+# Сколько раз пересоздавать упавшую задачу и пауза между попытками
+TASK_MAX_ATTEMPTS = 3
+TASK_RETRY_DELAY = 5
+
+# Признаки отказа, после которого повтор осмыслен. Всё остальное —
+# приговор конкретному фото (модерация, лицо не распознано, битый файл):
+# тот же файл с тем же промптом получит тот же ответ, и три попытки лишь
+# втрое удлинят ожидание.
+TRANSIENT_FAIL_MARKERS = (
+    "internal error",
+    "timeout",
+    "timed out",
+    "temporar",
+    "try again",
+    "server error",
+    "service unavailable",
+    "bad gateway",
+    "rate limit",
+)
+
+
+def _is_transient_failure(
+    fail_code: Optional[str], fail_msg: Optional[str]
+) -> bool:
+    """Стоит ли повторять задачу с таким отказом."""
+    if str(fail_code or "").startswith("5"):
+        return True
+    msg = (fail_msg or "").lower()
+    return any(marker in msg for marker in TRANSIENT_FAIL_MARKERS)
+
 
 class KieClientError(Exception):
     """Ошибка клиента kie.ai"""
     pass
+
+
+class KieTaskFailedError(KieClientError):
+    """Задача принята, но упала на стороне kie.ai (state=fail).
+
+    Отделена от прочих KieClientError, потому что только её имеет смысл
+    ретраить — и то не всякую: см. `transient`.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        fail_code: Optional[str] = None,
+        fail_msg: Optional[str] = None,
+        transient: bool = False,
+    ):
+        super().__init__(message)
+        self.fail_code = fail_code
+        self.fail_msg = fail_msg
+        self.transient = transient
 
 
 class KieClient:
@@ -145,7 +196,13 @@ class KieClient:
 
             if state == "fail":
                 fail_msg = data.get("failMsg") or "Unknown error"
-                raise KieClientError(f"Task failed: {fail_msg}")
+                fail_code = data.get("failCode")
+                raise KieTaskFailedError(
+                    f"Task failed: {fail_msg} (code {fail_code})",
+                    fail_code=fail_code,
+                    fail_msg=fail_msg,
+                    transient=_is_transient_failure(fail_code, fail_msg),
+                )
 
             await asyncio.sleep(poll_interval)
             elapsed += poll_interval
@@ -171,8 +228,36 @@ class KieClient:
         Returns:
             str: URL готового изображения
         """
-        task_id = await self.create_task(image_url, prompt, output_format, image_size)
-        return await self.wait_for_result(task_id)
+        last_error: Optional[KieTaskFailedError] = None
+
+        for attempt in range(1, TASK_MAX_ATTEMPTS + 1):
+            task_id = await self.create_task(
+                image_url, prompt, output_format, image_size
+            )
+            try:
+                return await self.wait_for_result(task_id)
+            except KieTaskFailedError as e:
+                # Ретраим только отказ самой задачи: у kie.ai бывает
+                # транзиентный 500. Таймаут и ошибки создания задачи
+                # означают другое и сюда не попадают.
+                if not e.transient:
+                    logger.warning(
+                        f"Task {task_id} rejected permanently, "
+                        f"no retry: {e}"
+                    )
+                    raise
+                last_error = e
+                logger.warning(
+                    f"Task {task_id} failed on attempt "
+                    f"{attempt}/{TASK_MAX_ATTEMPTS}: {e}"
+                )
+                if attempt < TASK_MAX_ATTEMPTS:
+                    await asyncio.sleep(TASK_RETRY_DELAY)
+
+        logger.error(
+            f"All {TASK_MAX_ATTEMPTS} attempts failed: {last_error}"
+        )
+        raise last_error
 
     async def create_gpt_image_2_task(
         self,
