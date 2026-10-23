@@ -531,3 +531,189 @@ EYEGLASSES RULE (CRITICAL): if the person is wearing glasses in the original pho
 
 PHOTOREALISM IS MANDATORY:
 The final image must look like a real photograph from a professional studio photoshoot, NOT an AI-generated or digitally painted image. Maintain all natural skin imperfections — pores, fine lines, subtle blemishes, natural skin redness. Skin must have realistic subsurface scattering and specular highlights, never appear plastic, waxy, or airbrushed. Hair must show individual strands, natural flyaways, and realistic shine. Clothing fabric must have natural wrinkles, creases, and realistic texture. The overall image must have the quality and feel of a RAW photo processed in Lightroom — natural color science, subtle grain, realistic micro-contrast. Absolutely no CGI, 3D render, illustration, or digitally painted appearance."""
+
+
+# --- Песочница /test_gpt: короткий фиксированный промпт без GPT-5.2 ---
+# Эксперимент 2026-10: длинный промпт с тегами «поры, зерно, RAW, микроконтраст»
+# давал на GPT Image 2 пережатую кожу, грязные цвета и вклеенную голову.
+# Здесь — короткая инструкция обычным языком. Прод эти шаблоны не использует.
+
+TEST_GPT_LOOKS: dict[tuple[str, str], tuple[str, str]] = {
+    ("male", "business"): (
+        "a well-fitted dark navy suit jacket over a plain white shirt, no tie",
+        "plain light-grey",
+    ),
+    ("female", "business"): (
+        "a well-fitted dark navy blazer over a simple white blouse",
+        "plain light-grey",
+    ),
+    ("male", "casual"): (
+        "a plain crew-neck sweater in a muted colour (navy, olive or grey) over a white t-shirt",
+        "plain light-grey",
+    ),
+    ("female", "casual"): (
+        "a soft knit sweater in a muted colour (beige, sage or dusty blue)",
+        "plain light-grey",
+    ),
+    ("male", "creative"): (
+        "a dark overshirt or casual jacket over a plain t-shirt",
+        "plain muted-colour (soft teal or warm terracotta)",
+    ),
+    ("female", "creative"): (
+        "a stylish blouse or light jacket in a rich but tasteful colour",
+        "plain muted-colour (soft teal or warm terracotta)",
+    ),
+}
+
+TEST_GPT_TEMPLATE = (
+    "Turn this selfie into a professional CV headshot of the same person. "
+    "Keep {pos} face, identity, skin tone, facial hair and glasses "
+    "(if any) exactly as they are — the same person, not idealized; do not add "
+    "glasses or accessories that are not in the photo. "
+    "Keep the same hairstyle — same cut, length, colour and texture — but neatly "
+    "groomed, as if freshly combed and tidied for a photoshoot; do not restyle "
+    "it into a different haircut. "
+    "Make it look as if photographed from about two metres away with a portrait "
+    "lens: natural head-to-shoulder proportions, no selfie wide-angle distortion. "
+    "Dress {obj} in {outfit}. "
+    "Chest-up framing, facing the camera, shoulders relaxed, arms out of frame. "
+    "{background} studio background. "
+    "Soft, even, flattering light; clean neutral colours; natural skin with light "
+    "professional retouching — no heavy texture, no HDR look, no grain, no harsh "
+    "shadows. It should look like a photo by a good corporate photographer."
+)
+
+
+def fallback_outfit(gender: str, style: str) -> str:
+    """Фиксированный образ — запасной, если GPT не придумал свой."""
+    return TEST_GPT_LOOKS.get(
+        (gender, style), TEST_GPT_LOOKS[("male", "casual")]
+    )[0]
+
+
+def build_test_gpt_prompt(
+    gender: str, style: str, outfit: Optional[str] = None
+) -> str:
+    """Короткий промпт для песочниц — без PROMPT_CRITICAL_SUFFIX.
+
+    outfit — образ от GPT (openai_client.generate_outfit); None → запасной.
+    """
+    _, background = TEST_GPT_LOOKS.get(
+        (gender, style), TEST_GPT_LOOKS[("male", "casual")]
+    )
+    pos, obj = ("her", "her") if gender == "female" else ("his", "him")
+    return TEST_GPT_TEMPLATE.format(
+        pos=pos,
+        obj=obj,
+        outfit=outfit or fallback_outfit(gender, style),
+        background=background.capitalize(),
+    )
+
+
+# --- Образ для песочниц придумывает GPT-5.2 (openai_client.generate_outfit) ---
+# Языковая модель плохо «случайничает» и повторяет один образ, поэтому
+# случайность задаёт код: в каждый запрос подмешивается тип верха и основной
+# цвет. Именно цвет, а не гамма: из гаммы «slate blue, grey, sage» GPT почти
+# всегда берёт первый, и образы сливались в один.
+
+OUTFIT_SYSTEM_PROMPT = (
+    "You are a stylist for professional CV headshots. Describe ONE outfit for "
+    "a {gender_word} that is visible in a chest-up portrait (top layers only, "
+    "no trousers or shoes). Style: {style_rule} "
+    "Use the garment type and the main colour given by the user; if that "
+    "colour would look out of place on the outer garment for this style, put "
+    "it on the inner layer and keep the rest neutral. "
+    "Answer with a single English noun phrase of at most 25 words, starting "
+    "with \"a\" or \"an\", in lowercase, no trailing period, no quotes. "
+    "Name garments, colours and fabrics only — no lighting, background, pose, "
+    "camera, hair or accessories."
+)
+
+OUTFIT_STYLE_RULES: dict[str, str] = {
+    "business": "business formal or business casual — tailored, polished, "
+                "suitable for a corporate CV.",
+    "casual": "smart casual — relaxed and neat, no suits, blazers or ties.",
+    "creative": "creative professional — tasteful but bolder colours, "
+                "textures or cuts; still appropriate for a CV.",
+}
+
+OUTFIT_TOP_HINTS: dict[tuple[str, str], list[str]] = {
+    ("male", "business"): [
+        "two-piece suit with a shirt and tie", "suit with an open-collar shirt",
+        "blazer over a shirt", "blazer over a fine-knit turtleneck",
+        "blazer over a fine-knit crew-neck",
+    ],
+    ("female", "business"): [
+        "blazer over a silk blouse", "blazer over a fine-knit top",
+        "tailored sheath dress", "trouser suit with a shell top",
+        "structured jacket over a high-neck top",
+    ],
+    ("male", "casual"): [
+        "crew-neck sweater over a t-shirt", "oxford button-down shirt",
+        "quarter-zip knit", "henley", "overshirt over a t-shirt",
+        "cardigan over a t-shirt", "polo shirt",
+    ],
+    ("female", "casual"): [
+        "soft knit sweater", "linen or cotton shirt", "cardigan over a top",
+        "simple blouse", "fine-knit turtleneck", "casual shirt jacket over a top",
+    ],
+    ("male", "creative"): [
+        "unstructured jacket over a t-shirt", "patterned or textured shirt",
+        "chunky knit sweater", "workwear or chore jacket over a top",
+        "turtleneck with an overshirt", "bomber or suede jacket over a t-shirt",
+    ],
+    ("female", "creative"): [
+        "statement blouse", "textured knit top", "colourful blazer over a top",
+        "wrap top", "oversized shirt", "jacket with an interesting cut over a top",
+    ],
+}
+
+OUTFIT_COLOURS: list[str] = [
+    "navy", "charcoal", "black", "white", "cream", "light grey", "camel",
+    "tobacco brown", "rust", "terracotta", "burgundy", "plum", "olive",
+    "forest green", "sage", "teal", "slate blue", "cornflower blue",
+    "sky blue", "dusty pink", "lilac", "mustard", "oatmeal", "denim blue",
+]
+
+
+# --- Песочница /test_models: сравнение моделей kie.ai на одном селфи ---
+# У моделей разные поля для фото и размера — сверено с docs.kie.ai (2026-10).
+# Кадр везде 3:4, разрешение 2K там, где его можно задать.
+
+@dataclass(frozen=True)
+class TestModel:
+    key: str            # короткий ключ для callback_data
+    label: str          # подпись в кнопке и под фото
+    model: str          # id модели в kie.ai
+    image_field: str    # поле input, в которое кладётся список URL фото
+    extra: dict         # остальные поля input, кроме prompt и фото
+
+
+TEST_MODELS: list[TestModel] = [
+    TestModel("nb", "Nano Banana (прод)", "google/nano-banana-edit", "image_urls",
+              {"output_format": "jpeg", "image_size": "3:4"}),
+    TestModel("nb2", "Nano Banana 2", "nano-banana-2", "image_input",
+              {"aspect_ratio": "3:4", "resolution": "2K", "output_format": "jpg"}),
+    TestModel("nb21", "Nano Banana 2.1", "nano-banana-2-1", "image_input",
+              {"aspect_ratio": "3:4", "resolution": "2K", "output_format": "jpg"}),
+    TestModel("nbpro", "Nano Banana Pro", "nano-banana-pro", "image_input",
+              {"aspect_ratio": "3:4", "resolution": "2K", "output_format": "jpg"}),
+    TestModel("gpt2", "GPT Image 2", "gpt-image-2-image-to-image", "input_urls",
+              {"aspect_ratio": "3:4", "resolution": "2K"}),
+    TestModel("gpt25f", "GPT Image 2.5 Flare", "gpt-image-2-5-flare-image-to-image",
+              "input_urls", {"aspect_ratio": "3:4", "resolution": "2K"}),
+    TestModel("gpt25s", "GPT Image 2.5 Sunburst",
+              "gpt-image-2-5-sunburst-image-to-image", "input_urls",
+              {"aspect_ratio": "3:4", "resolution": "2K"}),
+    TestModel("sd5", "Seedream 5 Pro", "seedream/5-pro-image-to-image", "image_urls",
+              {"aspect_ratio": "3:4", "quality": "high", "output_format": "jpeg"}),
+    TestModel("flux2", "FLUX.2 Pro", "flux-2/pro-image-to-image", "input_urls",
+              {"aspect_ratio": "3:4", "resolution": "2K"}),
+]
+
+TEST_MODELS_BY_KEY: dict[str, TestModel] = {m.key: m for m in TEST_MODELS}
+
+
+def build_test_model_input(test_model: TestModel, image_url: str, prompt: str) -> dict:
+    """Собирает input для createTask под конкретную модель."""
+    return {"prompt": prompt, test_model.image_field: [image_url], **test_model.extra}
