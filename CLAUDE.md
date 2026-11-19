@@ -70,7 +70,7 @@ No test suite, linter, or build step exists. Dependencies: `pip install -r requi
 - `user_referrals(referred_user_id, referrer_user_id, created_at, rewarded, rewarded_at)` — user-to-user referral relationships
 - `generations_log(id, user_id, created_at, gender, style, is_paid)`
 - `broadcasts(id, segment, message_text, total_recipients, sent, blocked, failed, started_at, finished_at)`
-- `ratings(id, user_id, value, created_at)` — каждая клик-оценка 1-5⭐ (для аналитики и ретроспективного просмотра; пишется одновременно с `users.has_rated=1`)
+- `ratings(id, user_id, value, created_at, reason)` — каждая клик-оценка 1-5⭐ (для аналитики и ретроспективного просмотра; пишется одновременно с `users.has_rated=1`); `reason` — причина низкой оценки (`likeness/style/quality/artifacts/other/skip`, `NULL` = не ответил)
 - `npd_receipts(id, payment_id UNIQUE, user_id, amount, service_name, status, receipt_uuid, print_url, attempts, last_error, created_at, updated_at)` — очередь фискализации НПД. `payment_id UNIQUE` защищает от двойного пробития при гонке polling'а с ручной кнопкой «Проверить оплату»
 - `support_sessions(user_id, active, started_at)` — флаг «юзер в активном диалоге с поддержкой» (источник правды для `InSupportSession`; см. раздел In-Bot Support)
 
@@ -266,8 +266,9 @@ After the user's first successful generation (and only then), the bot asks them 
 2. User sees message "Как тебе результат? Оцени от 1 до 5:" with keyboard `1⭐ 2⭐ 3⭐ 4⭐ 5⭐`.
 3. `handle_rating` callback in `rating.py` parses the star number, logs the value, calls `mark_as_rated(user_id)` + `save_rating(user_id, rating)` (race-guard: returns early if already rated), and branches:
    - **5 stars:** sends admin a short text-only notification (`⭐ Новая оценка: 5/5` + user info) via `_notify_admin_five_star`, then edits message to thanks + `get_five_star_keyboard` (single button reusing existing `referral_link` callback).
-   - **1-4 stars:** immediately forwards two messages to `ADMIN_ID` (original photo via `last_photo_file_id`, result via `last_result_url`) with caption containing rating/user info/gender/style. Edits user's message to feedback prompt + skip button, transitions FSM to `awaiting_feedback_text`.
-4. User writes text feedback → `handle_feedback_text` forwards it as a stage-2 admin message, clears state. User presses Skip → `handle_feedback_skip` clears state, no extra admin message. User sends non-text (photo/sticker) → catch-all handler nudges them to text or Skip without losing state.
+   - **1-4 stars:** immediately forwards two messages to `ADMIN_ID` (original photo via `last_photo_file_id`, result via `last_result_url`) with caption containing rating/user info/gender/style. Edits user's message to a **reason picker** (`get_reason_keyboard()`: 5 preset reasons from `RATING_REASONS` in `inline.py` + Skip) and schedules a one-shot reminder (see below). FSM is NOT set at this point.
+4. User taps a reason (`rr:<code>`, `handle_reason`) → `set_rating_reason()` writes it to `ratings.reason`, admin gets a one-line «Причина оценки» message, FSM → `awaiting_feedback_text`, user is offered optional free text («Готово» button; for `other` the text is requested right away). User writes text → `handle_feedback_text` forwards it as a stage-2 admin message, clears state. Skip/Готово (`feedback_skip`, works **without** FSM state) writes reason `skip` if none yet and clears state only if in `awaiting_feedback_text`. Non-text in feedback state → catch-all nudge without losing state.
+5. **Reminder:** `_schedule_feedback_reminder()` starts an `asyncio.create_task` that sleeps `REMINDER_DELAY = 3h`, then, if `has_rating_reason()` is false, re-sends the reason picker **once**. In-memory timer: a bot restart drops pending reminders. `ratings.reason` values: `likeness|style|quality|artifacts|other|skip`; `NULL` = never answered. `set_rating_reason()` only fills an empty reason, so repeat clicks never overwrite.
 
 **Admin self-exclusion:** if `user_id == ADMIN_ID`, admin notifications are suppressed to avoid self-spam.
 

@@ -188,13 +188,32 @@ def get_rating_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def get_feedback_skip_keyboard() -> InlineKeyboardMarkup:
-    """Клавиатура с кнопкой 'Пропустить' для пропуска текстового фидбека"""
+RATING_REASONS = {
+    "likeness": "🙂 Не похоже на меня",
+    "style": "🎨 Не понравился стиль или одежда",
+    "quality": "📷 Плохое качество",
+    "artifacts": "🧍 Странные руки, лицо или артефакты",
+    "other": "✍️ Другое (напишу сам)",
+}
+
+
+def get_reason_keyboard() -> InlineKeyboardMarkup:
+    """Предвыбранные причины низкой оценки (по кнопке на строку) + «Пропустить»"""
+    rows = [
+        [InlineKeyboardButton(text=label, callback_data=f"rr:{code}")]
+        for code, label in RATING_REASONS.items()
+    ]
+    rows.append([InlineKeyboardButton(text="Пропустить", callback_data="feedback_skip")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def get_feedback_skip_keyboard(text: str = "Пропустить") -> InlineKeyboardMarkup:
+    """Клавиатура с одной кнопкой (по умолчанию 'Пропустить') для завершения фидбека"""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="Пропустить",
+                    text=text,
                     callback_data="feedback_skip",
                 )
             ]
