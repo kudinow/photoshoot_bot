@@ -76,58 +76,78 @@ class KieClient:
             "Content-Type": "application/json",
         }
 
-    async def create_task(
+    async def create_task(self, image_url: str, prompt: str) -> str:
+        """
+        Создаёт продовую задачу: Nano Banana 2.1, кадр 3:4, 2K.
+
+        Выбрана сравнением в /test_models (2026-10): естественнее кожа и
+        сходство, чем у nano-banana-edit; ≈6 кредитов против 4.
+
+        Returns:
+            str: ID созданной задачи
+        """
+        return await self._create_task(
+            "nano-banana-2-1",
+            {
+                "prompt": prompt,
+                "image_input": [image_url],
+                "aspect_ratio": "3:4",
+                "resolution": "2K",
+                "output_format": "jpg",
+            },
+        )
+
+    async def create_task_legacy(
         self,
         image_url: str,
         prompt: str,
         output_format: str = "jpeg",
         image_size: str = "auto",
     ) -> str:
-        """
-        Создаёт задачу на генерацию изображения.
-
-        Args:
-            image_url: URL исходного изображения
-            prompt: Промпт для трансформации
-            output_format: Формат выхода (jpeg/png)
-            image_size: Соотношение сторон
-
-        Returns:
-            str: ID созданной задачи
-        """
-        url = f"{self.base_url}/api/v1/jobs/createTask"
-
-        payload = {
-            "model": "google/nano-banana-edit",
-            "input": {
+        """Прежняя продовая модель google/nano-banana-edit — запасная для отката
+        (transform_photo(..., legacy=True))."""
+        return await self._create_task(
+            "google/nano-banana-edit",
+            {
                 "prompt": prompt,
                 "image_urls": [image_url],
                 "output_format": output_format,
                 "image_size": image_size,
-            }
-        }
+            },
+        )
+
+    async def _create_task(self, model: str, model_input: dict) -> str:
+        """Общий createTask для всех моделей: payload, проверки, taskId.
+
+        Входные поля у моделей разные — их собирает вызывающий.
+        """
+        url = f"{self.base_url}/api/v1/jobs/createTask"
+        payload = {"model": model, "input": model_input}
 
         async with aiohttp.ClientSession() as session:
             async with session.post(url, json=payload, headers=self.headers) as resp:
                 if resp.status != 200:
                     text = await resp.text()
-                    logger.error(f"Failed to create task: {resp.status} - {text}")
+                    logger.error(
+                        f"Failed to create {model} task: {resp.status} - {text}"
+                    )
                     raise KieClientError(f"Failed to create task: {resp.status}")
 
                 data = await resp.json()
 
-                # Ответ: {"code": 200, "message": "success", "data": {"taskId": "..."}}
-                if data.get("code") != 200:
-                    raise KieClientError(f"API error: {data.get('message')}")
+        # Ответ: {"code": 200, "msg": "success", "data": {"taskId": "..."}}
+        if data.get("code") != 200:
+            raise KieClientError(
+                f"API error: {data.get('msg') or data.get('message')}"
+            )
 
-                task_id = data.get("data", {}).get("taskId")
+        task_id = data.get("data", {}).get("taskId")
+        if not task_id:
+            logger.error(f"No taskId in response: {data}")
+            raise KieClientError("No taskId in response")
 
-                if not task_id:
-                    logger.error(f"No taskId in response: {data}")
-                    raise KieClientError("No taskId in response")
-
-                logger.info(f"Created task: {task_id}")
-                return task_id
+        logger.info(f"Created {model} task: {task_id}")
+        return task_id
 
     async def get_task_status(self, task_id: str) -> dict:
         """
@@ -169,6 +189,17 @@ class KieClient:
         Returns:
             str: URL готового изображения
         """
+        result_url, _ = await self._wait_for_task(task_id, timeout, poll_interval)
+        return result_url
+
+    async def _wait_for_task(
+        self,
+        task_id: str,
+        timeout: int = 300,
+        poll_interval: int = 3,
+    ) -> tuple[str, dict]:
+        """Как wait_for_result, но отдаёт и финальный статус задачи
+        (там, например, creditsConsumed)."""
         import json
 
         elapsed = 0
@@ -188,7 +219,7 @@ class KieClient:
                         result_urls = result_data.get("resultUrls", [])
                         if result_urls:
                             logger.info(f"Task {task_id} completed: {result_urls[0]}")
-                            return result_urls[0]
+                            return result_urls[0], data
                     except json.JSONDecodeError:
                         pass
 
@@ -213,8 +244,7 @@ class KieClient:
         self,
         image_url: str,
         prompt: str,
-        output_format: str = "jpeg",
-        image_size: str = "auto",
+        legacy: bool = False,
     ) -> str:
         """
         Полный цикл трансформации фото: создание задачи и ожидание результата.
@@ -222,8 +252,7 @@ class KieClient:
         Args:
             image_url: URL исходного изображения
             prompt: Промпт для трансформации
-            output_format: Формат выхода (jpeg/png)
-            image_size: Соотношение сторон
+            legacy: True — прежняя модель nano-banana-edit (для отката)
 
         Returns:
             str: URL готового изображения
@@ -231,9 +260,10 @@ class KieClient:
         last_error: Optional[KieTaskFailedError] = None
 
         for attempt in range(1, TASK_MAX_ATTEMPTS + 1):
-            task_id = await self.create_task(
-                image_url, prompt, output_format, image_size
-            )
+            if legacy:
+                task_id = await self.create_task_legacy(image_url, prompt)
+            else:
+                task_id = await self.create_task(image_url, prompt)
             try:
                 return await self.wait_for_result(task_id)
             except KieTaskFailedError as e:
@@ -272,43 +302,15 @@ class KieClient:
         поле `input_urls` вместо `image_urls`, `aspect_ratio` вместо `image_size`,
         плюс отдельный `resolution` (1K/2K/4K).
         """
-        url = f"{self.base_url}/api/v1/jobs/createTask"
-
-        payload = {
-            "model": "gpt-image-2-image-to-image",
-            "input": {
+        return await self._create_task(
+            "gpt-image-2-image-to-image",
+            {
                 "prompt": prompt,
                 "input_urls": [image_url],
                 "aspect_ratio": aspect_ratio,
                 "resolution": resolution,
             },
-        }
-
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, headers=self.headers) as resp:
-                if resp.status != 200:
-                    text = await resp.text()
-                    logger.error(
-                        f"Failed to create GPT Image 2 task: {resp.status} - {text}"
-                    )
-                    raise KieClientError(
-                        f"Failed to create GPT Image 2 task: {resp.status}"
-                    )
-
-                data = await resp.json()
-
-                if data.get("code") != 200:
-                    raise KieClientError(
-                        f"API error: {data.get('msg') or data.get('message')}"
-                    )
-
-                task_id = data.get("data", {}).get("taskId")
-                if not task_id:
-                    logger.error(f"No taskId in response: {data}")
-                    raise KieClientError("No taskId in response")
-
-                logger.info(f"Created GPT Image 2 task: {task_id}")
-                return task_id
+        )
 
     async def transform_photo_gpt_image_2(
         self,
@@ -325,6 +327,26 @@ class KieClient:
             image_url, prompt, aspect_ratio, resolution
         )
         return await self.wait_for_result(task_id)
+
+    async def transform_photo_with_model(
+        self,
+        model: str,
+        model_input: dict,
+        timeout: int = 600,
+    ) -> tuple[str, Optional[float]]:
+        """Генерация произвольной моделью kie.ai (песочница /test_models).
+
+        `model_input` собирает вызывающий: у моделей разные поля для фото
+        (image_urls / image_input / input_urls) и размера. Возвращает URL
+        результата и списанные кредиты (creditsConsumed из recordInfo).
+        Таймаут больше продового: GPT Image 2.5 и Seedream в 2K бывают
+        дольше 5 минут, а задача на kie.ai при нашем таймауте не отменяется.
+        """
+        task_id = await self._create_task(model, model_input)
+        # Кредиты берём из того же финального статуса — без лишнего запроса,
+        # который мог бы упасть и выдать оплаченный результат за ошибку.
+        result_url, data = await self._wait_for_task(task_id, timeout=timeout)
+        return result_url, data.get("creditsConsumed")
 
     async def download_image(self, url: str) -> bytes:
         """

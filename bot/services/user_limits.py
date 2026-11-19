@@ -208,6 +208,13 @@ def init_db() -> None:
             ON ratings(user_id, created_at)
         """)
 
+        # Миграция: причина низкой оценки (likeness/style/quality/artifacts/other/skip)
+        try:
+            conn.execute("ALTER TABLE ratings ADD COLUMN reason TEXT")
+            logger.info("Added reason column to ratings table")
+        except sqlite3.OperationalError:
+            pass  # Колонка уже существует
+
         # Таблица лога рассылок
         conn.execute("""
             CREATE TABLE IF NOT EXISTS broadcasts (
@@ -586,6 +593,37 @@ def save_rating(user_id: int, value: int) -> None:
             "INSERT INTO ratings (user_id, value) VALUES (?, ?)",
             (user_id, value),
         )
+
+
+def set_rating_reason(user_id: int, reason: str) -> bool:
+    """Записывает причину в последнюю оценку юзера, если она ещё не заполнена.
+
+    Возвращает True, если запись обновлена (False — причина уже есть или
+    оценки нет), поэтому повторные клики и «Готово» после выбора причины
+    ничего не перезаписывают.
+    """
+    with _get_conn() as conn:
+        cur = conn.execute(
+            """
+            UPDATE ratings SET reason = ?
+            WHERE id = (SELECT id FROM ratings WHERE user_id = ?
+                        ORDER BY id DESC LIMIT 1)
+              AND reason IS NULL
+              AND value < 5
+            """,
+            (reason, user_id),
+        )
+        return cur.rowcount > 0
+
+
+def has_rating_reason(user_id: int) -> bool:
+    """True, если у последней оценки юзера уже есть причина (или «пропустить»)."""
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT reason FROM ratings WHERE user_id = ? ORDER BY id DESC LIMIT 1",
+            (user_id,),
+        ).fetchone()
+    return bool(row and row[0])
 
 
 def get_last_generation_context(

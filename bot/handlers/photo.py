@@ -5,6 +5,7 @@ from aiogram.exceptions import TelegramNetworkError
 from aiogram.fsm.context import FSMContext
 from aiogram.types import BufferedInputFile, Message
 
+from bot.config import build_prompt
 from bot.handlers.rating import send_rating_request
 from bot.keyboards.inline import get_buy_keyboard, get_restart_keyboard
 from bot.services.kie_client import (
@@ -116,12 +117,12 @@ async def handle_photo(
             f"gender: {gender}, style: {style}"
         )
 
-        # Генерируем промпт через OpenAI
-        logger.info(f"Generating prompt for user {user_id}...")
-        prompt = await openai_client.generate_prompt(gender, style)
+        # Образ придумывает стилист (GPT-5.2); не ответил — запасной образ
+        outfit = await openai_client.generate_outfit(gender, style)
+        prompt = build_prompt(gender, style, outfit)
         logger.info(
-            f"Prompt generated for user {user_id}, "
-            f"length: {len(prompt)}"
+            f"Prompt built for user {user_id}, "
+            f"outfit: {'gpt' if outfit else 'fallback'}, length: {len(prompt)}"
         )
 
         # Получаем файл фото (берём самое большое разрешение)
@@ -139,9 +140,8 @@ async def handle_photo(
             f"file_path: {file.file_path}"
         )
 
-        # Отправляем в kie.ai (Nano Banana, google/nano-banana-edit) и ждём результат.
-        # Метод transform_photo_gpt_image_2() для GPT Image 2 оставлен в kie_client
-        # как fallback, но не используется в проде.
+        # Отправляем в kie.ai (Nano Banana 2.1) и ждём результат.
+        # Прежняя модель доступна через transform_photo(..., legacy=True).
         result_url = await kie_client.transform_photo(
             image_url=file_url,
             prompt=prompt,

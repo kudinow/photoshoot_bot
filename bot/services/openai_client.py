@@ -1,10 +1,16 @@
 import asyncio
 import logging
+import random
+from typing import Optional
 
 import httpx
 from openai import AsyncOpenAI
 
 from bot.config import (
+    OUTFIT_COLOURS,
+    OUTFIT_STYLE_RULES,
+    OUTFIT_SYSTEM_PROMPT,
+    OUTFIT_TOP_HINTS,
     PROMPT_CRITICAL_SUFFIX,
     STYLE_LABELS,
     build_system_prompt,
@@ -137,6 +143,67 @@ class OpenAIClient:
             f"{local_prompt[:100]}..."
         )
         return local_prompt + PROMPT_CRITICAL_SUFFIX
+
+    # Стилист отвечает быстро или не отвечает вовсе — генерация не ждёт
+    OUTFIT_TIMEOUT = 15.0
+
+    # Последний выбор, чтобы не повторять подряд. Общий для всех юзеров и
+    # живёт в памяти процесса: после рестарта забывается — нам достаточно.
+    _last_outfit_colour: Optional[str] = None
+    _last_outfit_top: dict = {}
+
+    @staticmethod
+    def _pick_new(options: list, last: Optional[str]) -> str:
+        """Случайный вариант, отличный от предыдущего (если есть из чего)."""
+        fresh = [o for o in options if o != last]
+        return random.choice(fresh or options)
+
+    async def generate_outfit(self, gender: str, style: str) -> Optional[str]:
+        """Придумывает один образ для генерации (прод и песочницы).
+
+        Тип верха и гамму выбирает код, GPT-5.2 подбирает под них одежду.
+        Одна попытка; при любом сбое или странном ответе — None,
+        и вызывающий берёт запасной образ (config.fallback_outfit).
+        """
+        tops = OUTFIT_TOP_HINTS.get((gender, style), OUTFIT_TOP_HINTS[("male", "casual")])
+        top_hint = self._pick_new(tops, self._last_outfit_top.get((gender, style)))
+        colour_hint = self._pick_new(OUTFIT_COLOURS, self._last_outfit_colour)
+        self._last_outfit_top[(gender, style)] = top_hint
+        self._last_outfit_colour = colour_hint
+        system_prompt = OUTFIT_SYSTEM_PROMPT.format(
+            gender_word="woman" if gender == "female" else "man",
+            style_rule=OUTFIT_STYLE_RULES.get(style, OUTFIT_STYLE_RULES["casual"]),
+        )
+        user_message = (
+            f"Garment type: {top_hint}. Main colour: {colour_hint}. "
+            "Return only the outfit phrase."
+        )
+        try:
+            response = await asyncio.wait_for(
+                self.client.chat.completions.create(
+                    model=self.model,
+                    max_tokens=500,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_message},
+                    ],
+                ),
+                timeout=self.OUTFIT_TIMEOUT,
+            )
+            outfit = (response.choices[0].message.content or "").strip()
+        except Exception as e:
+            logger.warning(f"Outfit generation failed: {type(e).__name__}: {e}")
+            return None
+
+        outfit = outfit.strip("\"'«» ").rstrip(".")
+        if not outfit or "\n" in outfit or len(outfit) > 300:
+            logger.warning(f"Outfit rejected: {outfit!r}")
+            return None
+
+        logger.info(
+            f"Outfit for {gender}/{style} [{top_hint} | {colour_hint}]: {outfit}"
+        )
+        return outfit
 
     @staticmethod
     def _mask_proxy(proxy_url: str) -> str:

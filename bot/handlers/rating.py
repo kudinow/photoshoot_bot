@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from aiogram import Bot, F, Router
@@ -9,22 +10,29 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from bot.keyboards.inline import (
+    RATING_REASONS,
     get_feedback_skip_keyboard,
     get_five_star_keyboard,
     get_rating_keyboard,
+    get_reason_keyboard,
 )
 from bot.services.user_limits import (
     ADMIN_ID,
     get_last_generation_context,
+    has_rating_reason,
     has_user_rated,
     mark_as_rated,
     save_rating,
+    set_rating_reason,
 )
 from bot.states.generation import GenerationStates
 
 logger = logging.getLogger(__name__)
 
 router = Router()
+
+REMINDER_DELAY = 3 * 3600  # одно напоминание через 3 часа без ответа
+_reminder_tasks: set = set()  # сильные ссылки, чтобы задачи не собрал GC
 
 STYLE_LABELS_RU = {
     "business": "деловой",
@@ -212,14 +220,107 @@ async def handle_rating(
     try:
         await callback.message.edit_text(
             "Жаль, что не идеально 😔\n\n"
-            "Расскажи, что можно улучшить? Напиши в ответ "
-            "или нажми «Пропустить».",
-            reply_markup=get_feedback_skip_keyboard(),
+            "Что именно не так? Выбери вариант — это поможет сделать лучше:",
+            reply_markup=get_reason_keyboard(),
         )
     except Exception as e:
         logger.error(f"Failed to edit message after low rating: {e}")
 
-    await state.set_state(GenerationStates.awaiting_feedback_text)
+    _schedule_feedback_reminder(bot, callback.message.chat.id, user_id, state)
+
+
+def _schedule_feedback_reminder(
+    bot: Bot, chat_id: int, user_id: int, state: FSMContext
+) -> None:
+    """Планирует единственное напоминание о причине через REMINDER_DELAY.
+
+    Таймер живёт в памяти процесса: при рестарте бота напоминание теряется.
+    """
+    task = asyncio.create_task(_feedback_reminder(bot, chat_id, user_id, state))
+    _reminder_tasks.add(task)
+    task.add_done_callback(_reminder_tasks.discard)
+
+
+async def _feedback_reminder(
+    bot: Bot, chat_id: int, user_id: int, state: FSMContext
+) -> None:
+    await asyncio.sleep(REMINDER_DELAY)
+    try:
+        if has_rating_reason(user_id):
+            return
+        # Не вклиниваемся в идущую генерацию
+        if await state.get_state() == GenerationStates.processing.state:
+            return
+        await bot.send_message(
+            chat_id,
+            "Ты недавно поставил невысокую оценку 🙏\n"
+            "Подскажи одним нажатием, что не так с фото:",
+            reply_markup=get_reason_keyboard(),
+        )
+    except Exception as e:
+        logger.warning(f"Feedback reminder to {user_id} failed: {e}")
+
+
+@router.callback_query(F.data.startswith("rr:"))
+async def handle_reason(
+    callback: CallbackQuery, state: FSMContext, bot: Bot
+) -> None:
+    """Выбор причины низкой оценки. Причина фиксируется сразу, текст — по желанию."""
+    await callback.answer()
+    user_id = callback.from_user.id
+    code = callback.data.split(":", 1)[1]
+    if code not in RATING_REASONS:
+        logger.warning(f"Unknown rating reason: {code}")
+        return
+
+    if not set_rating_reason(user_id, code):
+        # Различаем «уже ответил» и «низкой оценки нет» (чужая/устаревшая кнопка)
+        if has_rating_reason(user_id):
+            try:
+                await callback.message.edit_text(
+                    "Спасибо, мы уже получили твой ответ 🙌"
+                )
+            except Exception:
+                pass
+        return
+
+    logger.info(f"User {user_id} rating reason: {code}")
+    if user_id != ADMIN_ID:
+        try:
+            await bot.send_message(
+                ADMIN_ID,
+                f"Причина оценки от {user_id}: {RATING_REASONS[code]}",
+            )
+        except Exception as e:
+            logger.error(f"Failed to send rating reason to admin: {e}")
+
+    if code == "other":
+        text = "Напиши, пожалуйста, что не так — одним сообщением:"
+        keyboard = get_feedback_skip_keyboard("Пропустить")
+    else:
+        text = (
+            "Спасибо! 🙏 Хочешь добавить подробности? "
+            "Напиши сообщением или нажми «Готово»."
+        )
+        keyboard = get_feedback_skip_keyboard("Готово")
+    # Если юзер сейчас в другом флоу (выбор пола/стиля, фото, генерация) —
+    # его состояние не трогаем, причину уже записали, текст не запрашиваем.
+    current = await state.get_state()
+    in_other_flow = current not in (
+        None,
+        GenerationStates.awaiting_feedback_text.state,
+    )
+    if in_other_flow:
+        text = "Спасибо! 🙏 Это поможет нам стать лучше."
+        keyboard = None
+
+    try:
+        await callback.message.edit_text(text, reply_markup=keyboard)
+    except Exception as e:
+        logger.error(f"Failed to edit message after reason: {e}")
+
+    if not in_other_flow:
+        await state.set_state(GenerationStates.awaiting_feedback_text)
 
 
 @router.message(GenerationStates.awaiting_feedback_text, F.text)
@@ -240,19 +341,21 @@ async def handle_feedback_text(
     await state.clear()
 
 
-@router.callback_query(
-    F.data == "feedback_skip", GenerationStates.awaiting_feedback_text
-)
+@router.callback_query(F.data == "feedback_skip")
 async def handle_feedback_skip(
     callback: CallbackQuery, state: FSMContext
 ) -> None:
-    """Обработчик кнопки 'Пропустить' на запросе текстового фидбека."""
+    """Кнопки 'Пропустить'/'Готово'. Работает без FSM-состояния: напоминание
+    приходит, когда состояние уже потеряно. Если причина ещё не выбрана,
+    помечаем её как 'skip', чтобы напоминание не сработало."""
     await callback.answer()
+    set_rating_reason(callback.from_user.id, "skip")
     try:
         await callback.message.edit_text("Ок, спасибо за оценку!")
     except Exception as e:
         logger.error(f"Failed to edit message on feedback skip: {e}")
-    await state.clear()
+    if await state.get_state() == GenerationStates.awaiting_feedback_text.state:
+        await state.clear()
 
 
 @router.message(GenerationStates.awaiting_feedback_text)

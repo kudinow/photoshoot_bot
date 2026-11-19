@@ -1,6 +1,6 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from bot.config import CREDIT_PACKAGES
+from bot.config import CREDIT_PACKAGES, TEST_MODELS
 from bot.services.user_limits import SEGMENT_LABELS, get_segment_count
 
 
@@ -188,13 +188,32 @@ def get_rating_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def get_feedback_skip_keyboard() -> InlineKeyboardMarkup:
-    """Клавиатура с кнопкой 'Пропустить' для пропуска текстового фидбека"""
+RATING_REASONS = {
+    "likeness": "🙂 Не похоже на меня",
+    "style": "🎨 Не понравился стиль или одежда",
+    "quality": "📷 Плохое качество",
+    "artifacts": "🧍 Странные руки, лицо или артефакты",
+    "other": "✍️ Другое (напишу сам)",
+}
+
+
+def get_reason_keyboard() -> InlineKeyboardMarkup:
+    """Предвыбранные причины низкой оценки (по кнопке на строку) + «Пропустить»"""
+    rows = [
+        [InlineKeyboardButton(text=label, callback_data=f"rr:{code}")]
+        for code, label in RATING_REASONS.items()
+    ]
+    rows.append([InlineKeyboardButton(text="Пропустить", callback_data="feedback_skip")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def get_feedback_skip_keyboard(text: str = "Пропустить") -> InlineKeyboardMarkup:
+    """Клавиатура с одной кнопкой (по умолчанию 'Пропустить') для завершения фидбека"""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="Пропустить",
+                    text=text,
                     callback_data="feedback_skip",
                 )
             ]
@@ -202,25 +221,25 @@ def get_feedback_skip_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def get_test_gender_keyboard() -> InlineKeyboardMarkup:
-    """Клавиатура выбора пола для админского теста GPT Image 2"""
+def get_test_gender_keyboard(prefix: str = "t") -> InlineKeyboardMarkup:
+    """Клавиатура выбора пола для админских тестов (/test_gpt — "t", /test_models — "tm")"""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="👨 Мужской", callback_data="t_gender:male"),
-                InlineKeyboardButton(text="👩 Женский", callback_data="t_gender:female"),
+                InlineKeyboardButton(text="👨 Мужской", callback_data=f"{prefix}_gender:male"),
+                InlineKeyboardButton(text="👩 Женский", callback_data=f"{prefix}_gender:female"),
             ]
         ]
     )
 
 
-def get_test_style_keyboard() -> InlineKeyboardMarkup:
-    """Клавиатура выбора стиля для админского теста GPT Image 2"""
+def get_test_style_keyboard(prefix: str = "t") -> InlineKeyboardMarkup:
+    """Клавиатура выбора стиля для админских тестов (/test_gpt — "t", /test_models — "tm")"""
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="👔 Деловой", callback_data="t_style:business")],
-            [InlineKeyboardButton(text="👕 Кежуал", callback_data="t_style:casual")],
-            [InlineKeyboardButton(text="🎨 Креативный", callback_data="t_style:creative")],
+            [InlineKeyboardButton(text="👔 Деловой", callback_data=f"{prefix}_style:business")],
+            [InlineKeyboardButton(text="👕 Кежуал", callback_data=f"{prefix}_style:casual")],
+            [InlineKeyboardButton(text="🎨 Креативный", callback_data=f"{prefix}_style:creative")],
         ]
     )
 
@@ -230,6 +249,31 @@ def get_test_restart_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="🔁 Ещё тест", callback_data="test_gpt_restart")],
+        ]
+    )
+
+
+def get_test_models_keyboard(selected: set[str]) -> InlineKeyboardMarkup:
+    """Выбор моделей для /test_models: галочки + «Выбрать все» + «Готово»"""
+    rows = [
+        [InlineKeyboardButton(
+            text=f"{'✅' if m.key in selected else '▫️'} {m.label}",
+            callback_data=f"tm_toggle:{m.key}",
+        )]
+        for m in TEST_MODELS
+    ]
+    rows.append([
+        InlineKeyboardButton(text="☑️ Выбрать все", callback_data="tm_all"),
+        InlineKeyboardButton(text=f"▶️ Готово ({len(selected)})", callback_data="tm_done"),
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def get_test_models_restart_keyboard() -> InlineKeyboardMarkup:
+    """Кнопка повторного запуска /test_models"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🔁 Ещё сравнение", callback_data="tm_restart")],
         ]
     )
 

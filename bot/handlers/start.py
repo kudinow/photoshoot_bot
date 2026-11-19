@@ -6,7 +6,7 @@ from aiogram.filters.command import CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
-from bot.config import STYLE_LABELS
+from bot.config import STYLE_LABELS, build_prompt
 from bot.keyboards.inline import (
     get_buy_keyboard,
     get_gender_keyboard,
@@ -242,14 +242,15 @@ async def regenerate_photo(
             f"gender: {gender}, style: {style}"
         )
 
-        # Генерируем новый промпт
-        prompt = await openai_client.generate_prompt(gender, style)
+        # Новый образ от стилиста; не ответил — запасной образ
+        outfit = await openai_client.generate_outfit(gender, style)
+        prompt = build_prompt(gender, style, outfit)
         logger.info(
-            f"Prompt generated for user {user_id}, "
-            f"length: {len(prompt)}"
+            f"Prompt built for user {user_id}, "
+            f"outfit: {'gpt' if outfit else 'fallback'}, length: {len(prompt)}"
         )
 
-        # Отправляем в kie.ai (Nano Banana, google/nano-banana-edit) и ждём результат
+        # Отправляем в kie.ai (Nano Banana 2.1) и ждём результат
         result_url = await kie_client.transform_photo(
             image_url=photo_url,
             prompt=prompt,

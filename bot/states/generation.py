@@ -18,3 +18,13 @@ class AdminTestStates(StatesGroup):
     selecting_style = State()
     awaiting_photo = State()
     processing = State()
+
+
+class ModelTestStates(StatesGroup):
+    """Состояния админского сравнения моделей kie.ai (/test_models)"""
+
+    selecting_gender = State()
+    selecting_style = State()
+    selecting_models = State()
+    awaiting_photo = State()
+    processing = State()
