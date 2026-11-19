@@ -76,25 +76,36 @@ class KieClient:
             "Content-Type": "application/json",
         }
 
-    async def create_task(
+    async def create_task(self, image_url: str, prompt: str) -> str:
+        """
+        Создаёт продовую задачу: Nano Banana 2.1, кадр 3:4, 2K.
+
+        Выбрана сравнением в /test_models (2026-10): естественнее кожа и
+        сходство, чем у nano-banana-edit; ≈6 кредитов против 4.
+
+        Returns:
+            str: ID созданной задачи
+        """
+        return await self._create_task(
+            "nano-banana-2-1",
+            {
+                "prompt": prompt,
+                "image_input": [image_url],
+                "aspect_ratio": "3:4",
+                "resolution": "2K",
+                "output_format": "jpg",
+            },
+        )
+
+    async def create_task_legacy(
         self,
         image_url: str,
         prompt: str,
         output_format: str = "jpeg",
         image_size: str = "auto",
     ) -> str:
-        """
-        Создаёт задачу на генерацию изображения.
-
-        Args:
-            image_url: URL исходного изображения
-            prompt: Промпт для трансформации
-            output_format: Формат выхода (jpeg/png)
-            image_size: Соотношение сторон
-
-        Returns:
-            str: ID созданной задачи
-        """
+        """Прежняя продовая модель google/nano-banana-edit — запасная для отката
+        (transform_photo(..., legacy=True))."""
         return await self._create_task(
             "google/nano-banana-edit",
             {
@@ -233,8 +244,7 @@ class KieClient:
         self,
         image_url: str,
         prompt: str,
-        output_format: str = "jpeg",
-        image_size: str = "auto",
+        legacy: bool = False,
     ) -> str:
         """
         Полный цикл трансформации фото: создание задачи и ожидание результата.
@@ -242,8 +252,7 @@ class KieClient:
         Args:
             image_url: URL исходного изображения
             prompt: Промпт для трансформации
-            output_format: Формат выхода (jpeg/png)
-            image_size: Соотношение сторон
+            legacy: True — прежняя модель nano-banana-edit (для отката)
 
         Returns:
             str: URL готового изображения
@@ -251,9 +260,10 @@ class KieClient:
         last_error: Optional[KieTaskFailedError] = None
 
         for attempt in range(1, TASK_MAX_ATTEMPTS + 1):
-            task_id = await self.create_task(
-                image_url, prompt, output_format, image_size
-            )
+            if legacy:
+                task_id = await self.create_task_legacy(image_url, prompt)
+            else:
+                task_id = await self.create_task(image_url, prompt)
             try:
                 return await self.wait_for_result(task_id)
             except KieTaskFailedError as e:

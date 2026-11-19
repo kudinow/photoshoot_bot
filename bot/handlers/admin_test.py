@@ -1,7 +1,7 @@
 """Админский тест модели GPT Image 2 (/test_gpt).
 
 Изолированный flow только для ADMIN_ID: gender → style → upload photo
-→ короткий фиксированный промпт (build_test_gpt_prompt, без GPT-5.2) → kie.ai с моделью
+→ короткий фиксированный промпт (build_prompt, без GPT-5.2) → kie.ai с моделью
 `gpt-image-2-image-to-image` → результат. Не пишет в users.generations,
 paid_credits, generations_log, ratings — чистый тест без побочных эффектов.
 """
@@ -24,7 +24,7 @@ from bot.config import (
     STYLE_LABELS,
     TEST_MODELS,
     TEST_MODELS_BY_KEY,
-    build_test_gpt_prompt,
+    build_prompt,
     build_test_model_input,
     fallback_outfit,
 )
@@ -134,7 +134,7 @@ async def t_handle_photo(
         )
 
         outfit = await openai_client.generate_outfit(gender, style)
-        prompt = build_test_gpt_prompt(gender, style, outfit)
+        prompt = build_prompt(gender, style, outfit)
         logger.info(
             f"[test_gpt] outfit={'gpt' if outfit else 'fallback'} "
             f"prompt length={len(prompt)}"
@@ -220,7 +220,7 @@ async def t_handle_while_processing(message: Message) -> None:
 
 
 # --- /test_models: одно селфи → несколько моделей kie.ai параллельно ---
-# Промпт тот же короткий (build_test_gpt_prompt). Ничего не пишет в БД.
+# Промпт тот же короткий (build_prompt). Ничего не пишет в БД.
 
 
 @router.message(Command("test_models"))
@@ -417,7 +417,7 @@ async def tm_handle_photo(message: Message, state: FSMContext, bot: Bot) -> None
             f"👕 Образ (GPT): {outfit}" if outfit
             else f"👕 Образ (запасной): {fallback_outfit(gender, style)}"
         )
-        prompt = build_test_gpt_prompt(gender, style, outfit)
+        prompt = build_prompt(gender, style, outfit)
 
         file = await bot.get_file(message.photo[-1].file_id)
         image_url = (

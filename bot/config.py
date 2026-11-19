@@ -533,12 +533,14 @@ PHOTOREALISM IS MANDATORY:
 The final image must look like a real photograph from a professional studio photoshoot, NOT an AI-generated or digitally painted image. Maintain all natural skin imperfections — pores, fine lines, subtle blemishes, natural skin redness. Skin must have realistic subsurface scattering and specular highlights, never appear plastic, waxy, or airbrushed. Hair must show individual strands, natural flyaways, and realistic shine. Clothing fabric must have natural wrinkles, creases, and realistic texture. The overall image must have the quality and feel of a RAW photo processed in Lightroom — natural color science, subtle grain, realistic micro-contrast. Absolutely no CGI, 3D render, illustration, or digitally painted appearance."""
 
 
-# --- Песочница /test_gpt: короткий фиксированный промпт без GPT-5.2 ---
-# Эксперимент 2026-10: длинный промпт с тегами «поры, зерно, RAW, микроконтраст»
-# давал на GPT Image 2 пережатую кожу, грязные цвета и вклеенную голову.
-# Здесь — короткая инструкция обычным языком. Прод эти шаблоны не использует.
+# --- Промпт генерации (прод с 2026-10 и песочницы /test_models, /test_gpt) ---
+# Короткая инструкция обычным языком + образ от стилиста (generate_outfit).
+# Прежний длинный промпт (PROMPT_BASE + STYLE_PROMPTS → GPT-5.2 +
+# PROMPT_CRITICAL_SUFFIX) с тегами «поры, зерно, RAW, микроконтраст» давал
+# пережатую кожу, грязные цвета и вклеенную голову; он остался в файле выше,
+# но прод его больше не вызывает.
 
-TEST_GPT_LOOKS: dict[tuple[str, str], tuple[str, str]] = {
+STYLE_LOOKS: dict[tuple[str, str], tuple[str, str]] = {
     ("male", "business"): (
         "a well-fitted dark navy suit jacket over a plain white shirt, no tie",
         "plain light-grey",
@@ -565,11 +567,14 @@ TEST_GPT_LOOKS: dict[tuple[str, str], tuple[str, str]] = {
     ),
 }
 
-TEST_GPT_TEMPLATE = (
+PHOTO_PROMPT_TEMPLATE = (
     "Turn this selfie into a professional CV headshot of the same person. "
-    "Keep {pos} face, identity, skin tone, facial hair and glasses "
-    "(if any) exactly as they are — the same person, not idealized; do not add "
-    "glasses or accessories that are not in the photo. "
+    "Keep {pos} face, identity, skin tone{facial_hair} exactly as they are — "
+    "the same person, not idealized; do not add glasses or accessories that "
+    "are not in the photo. "
+    "If {subj} wears glasses, keep them on exactly as in the photo — same frame "
+    "shape, colour and thickness; never remove or replace them and never turn "
+    "them into sunglasses; lenses stay clear, with the eyes fully visible. "
     "Keep the same hairstyle — same cut, length, colour and texture — but neatly "
     "groomed, as if freshly combed and tidied for a photoshoot; do not restyle "
     "it into a different haircut. "
@@ -586,31 +591,40 @@ TEST_GPT_TEMPLATE = (
 
 def fallback_outfit(gender: str, style: str) -> str:
     """Фиксированный образ — запасной, если GPT не придумал свой."""
-    return TEST_GPT_LOOKS.get(
-        (gender, style), TEST_GPT_LOOKS[("male", "casual")]
+    return STYLE_LOOKS.get(
+        (gender, style), STYLE_LOOKS[("male", "casual")]
     )[0]
 
 
-def build_test_gpt_prompt(
+def build_prompt(
     gender: str, style: str, outfit: Optional[str] = None
 ) -> str:
-    """Короткий промпт для песочниц — без PROMPT_CRITICAL_SUFFIX.
+    """Промпт генерации для прода и песочниц — без PROMPT_CRITICAL_SUFFIX.
 
     outfit — образ от GPT (openai_client.generate_outfit); None → запасной.
     """
-    _, background = TEST_GPT_LOOKS.get(
-        (gender, style), TEST_GPT_LOOKS[("male", "casual")]
+    _, background = STYLE_LOOKS.get(
+        (gender, style), STYLE_LOOKS[("male", "casual")]
     )
-    pos, obj = ("her", "her") if gender == "female" else ("his", "him")
-    return TEST_GPT_TEMPLATE.format(
+    if gender == "female":
+        pos, obj, subj, facial_hair = "her", "her", "she", ""
+    else:
+        pos, obj, subj = "his", "him", "he"
+        facial_hair = (
+            ", facial hair (if he is clean-shaven, keep him clean-shaven: "
+            "do not add stubble or a beard)"
+        )
+    return PHOTO_PROMPT_TEMPLATE.format(
         pos=pos,
         obj=obj,
+        subj=subj,
+        facial_hair=facial_hair,
         outfit=outfit or fallback_outfit(gender, style),
         background=background.capitalize(),
     )
 
 
-# --- Образ для песочниц придумывает GPT-5.2 (openai_client.generate_outfit) ---
+# --- Образ придумывает GPT-5.2 (openai_client.generate_outfit) ---
 # Языковая модель плохо «случайничает» и повторяет один образ, поэтому
 # случайность задаёт код: в каждый запрос подмешивается тип верха и основной
 # цвет. Именно цвет, а не гамма: из гаммы «slate blue, grey, sage» GPT почти

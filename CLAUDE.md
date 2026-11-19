@@ -29,7 +29,7 @@ No test suite, linter, or build step exists. Dependencies: `pip install -r requi
 1. User sends `/start` → sees welcome + gender selection buttons
 2. User picks gender → sees clothing style selection (business/casual/creative)
 3. User picks style → FSM moves to `awaiting_photo` state
-4. User sends photo → handler calls OpenRouter (GPT-5.2) to generate a style-aware prompt, then calls kie.ai API (`google/nano-banana-edit`) to transform the image
+4. User sends photo → handler asks OpenRouter (GPT-5.2) for an outfit (`generate_outfit()`, ≤15 s, one attempt; on failure a fixed fallback outfit), builds a short prompt with `build_prompt()`, then calls kie.ai API (`nano-banana-2-1`, 3:4, 2K) to transform the image
 5. Result photo sent back with "Regenerate" and "New photo" buttons
 6. **After the user's first successful generation only**, bot sends a rating prompt (1-5 stars). All ratings persist to `ratings` table and notify admin: 5⭐ sends a short text alert and surfaces the referral link to the user; 1-4⭐ forwards both photos + feedback text to admin. One-shot per user, gated by `users.has_rated` flag.
 7. For non-admin users, the first-generation result is watermarked (`ai-photobot.ru` diagonal); the clean version is delivered after a dedicated 50₽ `watermark_unlock` payment (0 credits) via the `🔓 Убрать знак — 50 ₽` button.
@@ -39,7 +39,7 @@ No test suite, linter, or build step exists. Dependencies: `pip install -r requi
 | Path | Purpose |
 |------|---------|
 | `bot/main.py` | Entry point: creates Bot, Dispatcher (MemoryStorage FSM), registers routers, starts polling in a network-resilient retry loop with its own SIGTERM/SIGINT handlers — see «Устойчивость к сбоям сети» |
-| `bot/config.py` | `Settings` (pydantic BaseSettings from `.env`) + `CreditPackage` / `CREDIT_PACKAGES` + style-aware prompts (`PROMPT_BASE` + `STYLE_PROMPTS` dict + `build_system_prompt()`) + `PROMPT_CRITICAL_SUFFIX` |
+| `bot/config.py` | `Settings` (pydantic BaseSettings from `.env`) + `CreditPackage` / `CREDIT_PACKAGES` + prod prompt (`PHOTO_PROMPT_TEMPLATE` + `STYLE_LOOKS` + `build_prompt()` + `fallback_outfit()`); legacy long prompts (`PROMPT_BASE` + `STYLE_PROMPTS` + `build_system_prompt()` + `PROMPT_CRITICAL_SUFFIX`) remain in the file but prod no longer calls them; `TEST_MODELS` for the `/test_models` sandbox |
 | `bot/handlers/start.py` | `/start` command, gender selection, style selection, regenerate callbacks |
 | `bot/handlers/photo.py` | Photo upload handler, orchestrates prompt generation → image transformation → response |
 | `bot/handlers/payment.py` | Payment flow: package selection, YooKassa payment creation, status polling. `_deliver_after_payment()` branches on the `watermark_unlock` package → sends the clean photo instead of crediting generations |
@@ -54,8 +54,8 @@ No test suite, linter, or build step exists. Dependencies: `pip install -r requi
 | `bot/handlers/broadcast.py` | Admin broadcasting: `/broadcast` segmented mass messages + `/send USER_ID text` for direct per-user messages |
 | `bot/handlers/support.py` | In-bot two-way support chat: `/support` + `support_open` entry, `InSupportSession` filter relays user text/photo to admin (uid embedded), admin native-Reply routes back, close from either side |
 | `bot/services/yookassa_client.py` | Async wrapper over YooKassa SDK (payment creation + status check via `run_in_executor`) |
-| `bot/services/openai_client.py` | `OpenAIClient` — async prompt generation via OpenRouter (GPT-5.2) |
-| `bot/services/kie_client.py` | `KieClient` — async image transformation via kie.ai. Prod uses `transform_photo()` (model `google/nano-banana-edit`, image_size `auto`), which retries transient task failures — see «Устойчивость к сбоям сети». `transform_photo_gpt_image_2()` (model `gpt-image-2-image-to-image`, aspect_ratio `3:4`, resolution `2K`) is kept in the file as fallback and still used by the admin `/test_gpt` sandbox, but not called from the prod generation handlers. |
+| `bot/services/openai_client.py` | `OpenAIClient` — async via OpenRouter (GPT-5.2). Prod uses `generate_outfit(gender, style)` (code picks garment type + main colour, GPT writes the outfit; `_last_outfit_*` «don't repeat» memory is shared by all users, in-process). `generate_prompt()` (long prompt + local fallback) is no longer called by prod |
+| `bot/services/kie_client.py` | `KieClient` — async image transformation via kie.ai. Prod uses `transform_photo()` (model `nano-banana-2-1`, `image_input`, aspect_ratio `3:4`, resolution `2K`, ≈6 credits, ~60 s; chosen via `/test_models` 2026-10), which retries transient task failures. `transform_photo(..., legacy=True)` is the manual rollback to `google/nano-banana-edit` (4 credits, ~16 s) — no automatic fallback — see «Устойчивость к сбоям сети». `transform_photo_gpt_image_2()` (model `gpt-image-2-image-to-image`, aspect_ratio `3:4`, resolution `2K`) is kept in the file as fallback and still used by the admin `/test_gpt` sandbox, but not called from the prod generation handlers. |
 | `bot/handlers/admin_test.py` | Admin-only `/test_gpt` flow (gender → style → photo). Always runs GPT Image 2; does not write to `users.generations`, `paid_credits`, `generations_log`, `ratings`. Useful as a no-side-effect sandbox for the admin. |
 | `bot/services/user_limits.py` | SQLite-based user limit tracking (1 free generation + paid credits, admin bypass; `reserve_generation()` / `refund_generation()` — списание до генерации и возврат), payment history, deep-link referral stats, user-to-user referral program, rating helpers, `has_unlocked_watermark()` for watermark unlock, `init_db()` called at startup |
 | `bot/states/generation.py` | `GenerationStates` FSM: `selecting_gender` → `selecting_style` → `awaiting_photo` → `processing`; plus `awaiting_feedback_text` used by the rating flow |
@@ -94,12 +94,14 @@ Configured via `.env` (see `.env.example`):
 
 - `MAX_FREE_GENERATIONS = 1` and `ADMIN_ID = 91892537` in `bot/services/user_limits.py`
 - `CREDIT_PACKAGES` in `bot/config.py` — three credit packs: 5/149₽, 15/349₽, 50/899₽ (prices in kopecks for payment API)
-- Prompt templates in `bot/config.py`: `PROMPT_BASE` (common studio setup), `STYLE_PROMPTS` dict with 6 style sections (business/casual/creative × male/female), `build_system_prompt(gender, style)` assembles them, `PROMPT_CRITICAL_SUFFIX` (face preservation). Critical for output quality; changes should be tested carefully
+- Prod prompt in `bot/config.py`: `PHOTO_PROMPT_TEMPLATE` + `STYLE_LOOKS` (fallback outfit/background per gender×style), `build_prompt(gender, style, outfit)`. Male prompt keeps facial hair and says «if clean-shaven, don't add stubble» (not verified on clean-shaven selfies — check in `/test_models`). No `PROMPT_CRITICAL_SUFFIX`. Legacy (unused by prod): `PROMPT_BASE` (common studio setup), `STYLE_PROMPTS` dict with 6 style sections (business/casual/creative × male/female), `build_system_prompt(gender, style)` assembles them, `PROMPT_CRITICAL_SUFFIX` (face preservation). Critical for output quality; changes should be tested carefully
 - `STYLE_LABELS` in `bot/config.py` — style display names: business→"деловой", casual→"кежуал", creative→"креативный"
 
 ## LLM Prompt Generation & Fallback
 
-Step 1 of every generation is building a style-aware prompt via OpenRouter (GPT-5.2). Since **2026-07-13** OpenRouter's Cloudflare returns `403 {"success": false, "error": "Access denied by security policy."}` to the production IP (89.169.163.73, Yandex Cloud RU) — even to a bare `GET https://openrouter.ai/` with no API key. It's IP/geo blocking, not the key. Symptom before the fix: users saw «Ошибка генерации стиля. Попробуй ещё раз.» (the `except OpenAIClientError` branch in [bot/handlers/photo.py](bot/handlers/photo.py)); the bot never reached kie.ai.
+> **Актуальность (2026-10):** прод больше не вызывает `generate_prompt()` и `prompt_fallback.py` — в генерации OpenRouter используется только в `generate_outfit()` (≤15 с, одна попытка, при сбое — `fallback_outfit()`). Текст ниже — история проблемы 403 и прежней защиты; прокси `OPENROUTER_PROXY` по-прежнему работает для `generate_outfit()`.
+
+Step 1 of every generation was building a style-aware prompt via OpenRouter (GPT-5.2). Since **2026-07-13** OpenRouter's Cloudflare returns `403 {"success": false, "error": "Access denied by security policy."}` to the production IP (89.169.163.73, Yandex Cloud RU) — even to a bare `GET https://openrouter.ai/` with no API key. It's IP/geo blocking, not the key. Symptom before the fix: users saw «Ошибка генерации стиля. Попробуй ещё раз.» (the `except OpenAIClientError` branch in [bot/handlers/photo.py](bot/handlers/photo.py)); the bot never reached kie.ai.
 
 **Two-layer mitigation (deployed 2026-07-31):**
 
