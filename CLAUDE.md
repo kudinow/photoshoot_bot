@@ -455,6 +455,15 @@ ssh kudinow@89.169.163.73 "/opt/photoshoot_ai/venv/bin/python3 /opt/photoshoot_a
 
 **Webmaster verification files:** `landing/yandex_7b748dde2c403ea7.html` — deployed to `/var/www/landing/` root. For new verification files, SCP to the same location.
 
+## Бэкапы
+
+[scripts/backup.py](scripts/backup.py) раз в неделю (cron под `deploy`, воскресенье 01:00 UTC = 04:00 МСК) кладёт в `/opt/photoshoot_ai/backups/` консистентную копию БД (`sqlite3.backup` + `integrity_check`) и архив `clean/` (чистые фото для разблокировки знака). Хранятся последние 8 копий каждого вида (`KEEP`). Лог: `backups/backup.log`.
+
+**Копии лежат на том же сервере** — от потери самой ВМ (как с Яндексом) не защищают. Копии вне сервера (скачать на Mac / Telegram админу) не делаем: выбрано «только на сервере».
+
+Ручной запуск: `sudo -u deploy /opt/photoshoot_ai/venv/bin/python3 /opt/photoshoot_ai/scripts/backup.py`.
+Восстановление: `systemctl stop photoshoot_ai` → скопировать нужный `user_data_*.db` поверх `/opt/photoshoot_ai/user_data.db` (владелец `deploy`) → `systemctl start photoshoot_ai`. `clean/` — распаковать `clean_*.tar.gz` в `/opt/photoshoot_ai/`.
+
 ## Deployment (Bot)
 
 Production runs on Yandex Cloud Ubuntu 22.04 VM as systemd service (`photoshoot_ai.service`), under the `deploy` user at `/opt/photoshoot_ai`. One-time setup via `deploy.sh`. Update process: stop service → SCP files → restart. See `DEPLOY.md` and `SERVER_COMMANDS.md` for details.
